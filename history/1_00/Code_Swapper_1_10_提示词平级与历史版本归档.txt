@@ -1,0 +1,181 @@
+「Code_Swapper_1_10 提示词平级与历史版本归档」Modification Summary
+
+########## 修改说明 ##########
+三项改动：
+1. 提示词文件从 Work/ 移到脚本平级目录读取（路径改为 SCRIPT_DIR / "Code_Swapper使用提示词.txt"）。
+2. 新增 extract_base_name() 函数：从文件名中去掉末尾版本号后缀，得到基础名（如
+   Code_Swapper_1_09 -> Code_Swapper）。
+3. 新增 archive_files() 函数：修改成功后，在脚本同目录创建「历史版本/<基础名>/」子文件夹，
+   将旧版源脚本和指令文档移入其中。若目标位置存在同名文件，自动追加 _YYYYMMDD_HHMMSS 后缀区分。
+4. 在阶段3执行成功后调用 archive_files()，并在完成报告里打印归档结果。
+########## 说明结束 ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+Single-file Python script Code_Swapper_1_09.py.
+Add extract_base_name() and archive_files() helpers, move prompt file path to
+SCRIPT_DIR level, and call archive_files() after successful execution.
+
+---
+
+**Modification 1 of 4**
+
+Locate the following code:
+=====LOCATE=====
+# Work 文件夹和 config.json 路径（脚本同目录下的 Work/ 子文件夹）
+SCRIPT_DIR = Path(__file__).resolve().parent
+WORK_DIR = SCRIPT_DIR / "Work"
+CONFIG_PATH = WORK_DIR / "config.json"
+LOGS_DIR = WORK_DIR / "logs"
+
+# 日志上限配置
+LOG_MAX_COUNT = 60   # 超过此数量触发清理
+LOG_KEEP_COUNT = 30  # 清理后保留数量
+=====REPLACE=====
+# Work 文件夹和 config.json 路径（脚本同目录下的 Work/ 子文件夹）
+SCRIPT_DIR = Path(__file__).resolve().parent
+WORK_DIR = SCRIPT_DIR / "Work"
+CONFIG_PATH = WORK_DIR / "config.json"
+LOGS_DIR = WORK_DIR / "logs"
+ARCHIVE_DIR = SCRIPT_DIR / "历史版本"  # 归档根目录（脚本平级）
+
+# 日志上限配置
+LOG_MAX_COUNT = 60   # 超过此数量触发清理
+LOG_KEEP_COUNT = 30  # 清理后保留数量
+=====END=====
+
+---
+
+**Modification 2 of 4**
+
+Locate the following code:
+=====LOCATE=====
+# ============================================================
+# 指令文档解析
+# ============================================================
+=====REPLACE=====
+# ============================================================
+# 归档工具函数
+# ============================================================
+def extract_base_name(filename: str) -> str:
+    """
+    从文件名中提取基础名（去掉末尾版本号后缀）。
+    例：Code_Swapper_1_09.py -> Code_Swapper
+         bangumi_1_08.py     -> bangumi
+         script_v3.py        -> script
+    """
+    stem = Path(filename).stem
+    patterns = [
+        r'^(.*?)_\d+$',   # 末尾 _数字
+        r'^(.*?)v\d+$',   # 末尾 v数字
+        r'^(.*?)V\d+$',   # 末尾 V数字
+    ]
+    for pat in patterns:
+        m = re.match(pat, stem)
+        if m:
+            # 递归剥离，直到没有更多版本号后缀
+            inner = m.group(1).rstrip('_')
+            # 再剥一层（处理 Name_1_09 -> Name_1 -> Name）
+            for pat2 in patterns:
+                m2 = re.match(pat2, inner)
+                if m2:
+                    return m2.group(1).rstrip('_')
+            return inner
+    return stem
+
+
+def archive_files(source_path: Path, instruction_path: Path) -> list[str]:
+    """
+    将旧版源脚本和指令文档移入「历史版本/<基础名>/」归档文件夹。
+    同名冲突时自动追加 _YYYYMMDD_HHMMSS 后缀。
+    返回归档报告行列表。
+    """
+    report = []
+    base_name = extract_base_name(source_path.name)
+    dest_dir = ARCHIVE_DIR / base_name
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    report.append(f"  归档目录: {dest_dir}")
+
+    for file_path in (source_path, instruction_path):
+        dest = dest_dir / file_path.name
+        if dest.exists():
+            # 同名冲突：用文件修改时间作后缀
+            mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+            suffix_ts = mtime.strftime("%Y%m%d_%H%M%S")
+            new_name = f"{file_path.stem}_{suffix_ts}{file_path.suffix}"
+            dest = dest_dir / new_name
+            report.append(f"  ⚠️  同名冲突，重命名为: {new_name}")
+        shutil.move(str(file_path), str(dest))
+        report.append(f"  ✅ 已归档: {file_path.name} -> {dest.name}")
+
+    return report
+
+
+# ============================================================
+# 指令文档解析
+# ============================================================
+=====END=====
+
+---
+
+**Modification 3 of 4**
+
+Locate the following code:
+=====LOCATE=====
+# ============================================================
+# 提示词内容（从外部文件读取）
+# ============================================================
+try:
+    prompt_file = WORK_DIR / "Code_Swapper使用提示词.txt"
+    if prompt_file.is_file():
+        PROMPT_TEXT = prompt_file.read_text(encoding="utf-8")
+    else:
+        PROMPT_TEXT = "⚠️ 未找到提示词文件：Work/Code_Swapper使用提示词.txt"
+except Exception as e:
+    PROMPT_TEXT = f"⚠️ 读取提示词失败: {e}"
+=====REPLACE=====
+# ============================================================
+# 提示词内容（从外部文件读取，与脚本平级）
+# ============================================================
+try:
+    prompt_file = SCRIPT_DIR / "Code_Swapper使用提示词.txt"
+    if prompt_file.is_file():
+        PROMPT_TEXT = prompt_file.read_text(encoding="utf-8")
+    else:
+        PROMPT_TEXT = "⚠️ 未找到提示词文件：Code_Swapper使用提示词.txt（应与脚本放在同一目录）"
+except Exception as e:
+    PROMPT_TEXT = f"⚠️ 读取提示词失败: {e}"
+=====END=====
+
+---
+
+**Modification 4 of 4**
+
+Locate the following code:
+=====LOCATE=====
+    # ---------- 完成 ----------
+    print("\n" + "=" * 60)
+    print("✅ 全部完成")
+    print("=" * 60)
+    print(f"新脚本   : {target_path}")
+    print(f"\n请手动测试新脚本，确认行为正确后再投入使用。")
+=====REPLACE=====
+    # ---------- 归档 ----------
+    print("\n" + "─" * 60)
+    print("【归档】将旧版脚本和指令文档移入历史版本")
+    print("─" * 60)
+    try:
+        archive_report = archive_files(source_path, instruction_path)
+        for line in archive_report:
+            print(line)
+    except Exception as e:
+        print(f"  ⚠️  归档过程出错（不影响新脚本）: {e}")
+
+    # ---------- 完成 ----------
+    print("\n" + "=" * 60)
+    print("✅ 全部完成")
+    print("=" * 60)
+    print(f"新脚本   : {target_path}")
+    print(f"\n请手动测试新脚本，确认行为正确后再投入使用。")
+=====END=====

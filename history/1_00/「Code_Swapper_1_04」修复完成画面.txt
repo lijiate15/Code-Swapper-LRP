@@ -1,0 +1,34 @@
+Modification 1 of 1
+
+Locate the following code:
+```
+    print("\n" + "=" * 60)
+    print("✅ 全部完成")
+    print("=" * 60)
+    print(f"新脚本   : {target_path}")
+    print(f"修改记录 : {changelog_path}")
+    print(f"\n请手动测试新脚本，确认行为正确后再投入使用。")
+
+    # 双击运行时窗口不会立刻关闭
+    if len(sys.argv) == 1:
+        input("\n按回车键退出...")
+```
+Replace with:
+```
+    print("\n" + "=" * 60)
+    print("✅ 全部完成")
+    print("=" * 60)
+    print(f"新脚本   : {target_path}")
+    print(f"\n请手动测试新脚本，确认行为正确后再投入使用。")
+
+    # 修改成功后询问是否继续
+    if len(sys.argv) == 1:
+        print("\n请选择：")
+        print("  1. 继续代码修改（回车默认）")
+        print("  2. 退出")
+        c = input("请输入选项 (1/2，回车默认1): ").strip()
+        if c == '2':
+            sys.exit(0)
+        else:
+            main()
+```

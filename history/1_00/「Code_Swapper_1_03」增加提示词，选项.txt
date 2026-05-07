@@ -1,0 +1,133 @@
+Modification 1 of 3
+
+Locate the following code:
+```
+# ============================================================
+# 主流程
+# ============================================================
+def main():
+    print("=" * 60)
+    print("脚本修改自动执行器")
+    print("=" * 60)
+
+    # ---------- 参数解析：有参数走命令行模式，无参数走弹窗模式 ----------
+    if len(sys.argv) == 3:
+```
+Replace with:
+```
+# ============================================================
+# 提示词内容
+# ============================================================
+PROMPT_TEXT = """
+（提示词内容待填写）
+"""
+
+
+# ============================================================
+# 主流程
+# ============================================================
+def main():
+    print("=" * 60)
+    print("脚本修改自动执行器")
+    print("=" * 60)
+
+    # ---------- 参数解析：有参数走命令行模式，无参数走菜单模式 ----------
+    if len(sys.argv) == 3:
+```
+
+Modification 2 of 3
+
+Locate the following code:
+```
+    elif len(sys.argv) == 1:
+        # 弹窗模式
+        print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+        source_path, instruction_path = select_files_via_dialog()
+```
+Replace with:
+```
+    elif len(sys.argv) == 1:
+        # 菜单模式
+        while True:
+            print("\n请选择操作：")
+            print("  1. 查看使用提示词")
+            print("  2. 进行代码修改")
+            choice = input("请输入选项 (1/2): ").strip()
+            if choice == '1':
+                print("\n" + "=" * 60)
+                print(PROMPT_TEXT.strip())
+                print("=" * 60)
+                print("\n请选择：")
+                print("  1. 继续代码修改（回车默认）")
+                print("  2. 退出")
+                c = input("请输入选项 (1/2，回车默认1): ").strip()
+                if c == '2':
+                    sys.exit(0)
+            if choice in ('', '1', '2'):
+                if choice != '1':
+                    break
+            else:
+                print("无效输入，请输入 1 或 2")
+                continue
+            if choice == '2':
+                break
+        print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+        source_path, instruction_path = select_files_via_dialog()
+```
+
+Modification 3 of 3
+
+Locate the following code:
+```
+    if not all_pass:
+        print("\n" + "=" * 60)
+        print("❌ 预检查未通过 — 已终止，源文件未被修改，新文件未生成")
+        print("=" * 60)
+        print("建议处理:")
+        print("  1. 复制上面的失败信息，回到 Claude 对话中说明哪一处对不上")
+        print("  2. 让 Claude 重新输出修正后的指令文档")
+        print("  3. 重新运行本脚本")
+        input("\n按回车键退出...")
+        sys.exit(2)
+```
+Replace with:
+```
+    if not all_pass:
+        print("\n" + "=" * 60)
+        print("❌ 预检查未通过 — 已终止，源文件未被修改，新文件未生成")
+        print("=" * 60)
+
+        # 自动生成失败记录文件名（序号递增）
+        base_name = instruction_path.stem
+        fail_dir = instruction_path.parent
+        idx = 1
+        while True:
+            fail_filename = f"{base_name}_修改失败_{idx:03d}.txt"
+            fail_path = fail_dir / fail_filename
+            if not fail_path.exists():
+                break
+            idx += 1
+
+        print(f"\n请选择：")
+        print(f"  1. 保存失败记录为 {fail_filename}（回车默认）")
+        print(f"  2. 退出")
+        c = input("请输入选项 (1/2，回车默认1): ").strip()
+        if c != '2':
+            # 保存失败记录
+            fail_lines = ["预检查失败记录\n", f"指令文档：{instruction_path}\n",
+                          f"源脚本：{source_path}\n\n", "失败详情：\n"]
+            fail_lines += [line + "\n" for line in precheck_report]
+            fail_path.write_text("".join(fail_lines), encoding='utf-8')
+            print(f"  ✅ 已保存失败记录：{fail_path}")
+
+            print(f"\n请选择：")
+            print(f"  1. 继续代码修改（回车默认）")
+            print(f"  2. 退出")
+            c2 = input("请输入选项 (1/2，回车默认1): ").strip()
+            if c2 == '2':
+                sys.exit(0)
+            else:
+                main()
+                return
+        sys.exit(2)
+```

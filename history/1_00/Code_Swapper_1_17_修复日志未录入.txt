@@ -1,0 +1,125 @@
+「Code_Swapper_1_17 修复日志文件未录入任何内容的BUG」
+
+########## 修改说明 ##########
+问题根因：main() 及全部子函数的输出均使用 print()，而 logging 只配置了
+FileHandler + StreamHandler，print() 完全绕过 logging，导致日志文件只有
+第一行 "=== 日志文件 ===" 后再无内容。
+
+修复方案：在 init_log() 中，用 StreamToLogger 类将 sys.stdout 替换为一个
+转发到 logging.info 的包装器，同时保留原始 stdout 用于控制台实际输出。
+这样所有现有 print() 语句无需任何改动，即可同步写入日志文件。
+
+无额外临时文件产生，内存占用可忽略不计。
+########## 说明结束 ##########
+
+---
+
+Modification 1 of 1
+
+Locate the following code:
+=====LOCATE=====
+# ============================================================
+# 日志初始化
+# ============================================================
+def init_log() -> None:
+    """
+    在 Work/logs/ 下创建本次运行的日志文件（按时间戳命名）。
+    同时将 logging 配置为同步输出到控制台和日志文件。
+    超过 LOG_MAX_COUNT 份时，删除最旧的直到剩 LOG_KEEP_COUNT 份。
+    """
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 日志轮转：超过上限则删除最旧的
+    existing = sorted(LOGS_DIR.glob("run_*.log"))
+    if len(existing) >= LOG_MAX_COUNT:
+        to_delete = existing[:len(existing) - LOG_KEEP_COUNT + 1]
+        for f in to_delete:
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+    # 创建本次日志文件
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = LOGS_DIR / f"run_{timestamp}.log"
+
+    # 配置 logging：同时输出到控制台和文件
+    log_format = "%(asctime)s %(message)s"
+    date_format = "%H:%M:%S"
+    logging.basicConfig(
+        level=logging.INFO,
+        format=log_format,
+        datefmt=date_format,
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(log_path, encoding="utf-8"),
+        ],
+    )
+    logging.info(f"=== 日志文件: {log_path} ===")
+=====REPLACE=====
+# ============================================================
+# 日志初始化
+# ============================================================
+class StreamToLogger:
+    """
+    将 sys.stdout 的写入转发到 logging.info，同时保留原始控制台输出。
+    这样所有 print() 语句无需修改即可同步写入日志文件。
+    """
+    def __init__(self, original_stdout):
+        self._original = original_stdout
+        self._buf = ""
+
+    def write(self, msg):
+        self._original.write(msg)
+        self._buf += msg
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if line:  # 忽略空行，避免日志产生大量空记录
+                logging.info(line)
+
+    def flush(self):
+        self._original.flush()
+
+    def isatty(self):
+        return self._original.isatty()
+
+
+def init_log() -> None:
+    """
+    在 Work/logs/ 下创建本次运行的日志文件（按时间戳命名）。
+    将 sys.stdout 替换为 StreamToLogger，使所有 print() 自动写入日志。
+    超过 LOG_MAX_COUNT 份时，删除最旧的直到剩 LOG_KEEP_COUNT 份。
+    """
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 日志轮转：超过上限则删除最旧的
+    existing = sorted(LOGS_DIR.glob("run_*.log"))
+    if len(existing) >= LOG_MAX_COUNT:
+        to_delete = existing[:len(existing) - LOG_KEEP_COUNT + 1]
+        for f in to_delete:
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+    # 创建本次日志文件
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = LOGS_DIR / f"run_{timestamp}.log"
+
+    # 配置 logging：只写文件，控制台由 StreamToLogger 负责
+    log_format = "%(asctime)s %(message)s"
+    date_format = "%H:%M:%S"
+    logging.basicConfig(
+        level=logging.INFO,
+        format=log_format,
+        datefmt=date_format,
+        handlers=[
+            logging.FileHandler(log_path, encoding="utf-8"),
+        ],
+    )
+
+    # 替换 sys.stdout，使所有 print() 自动同步写入日志
+    sys.stdout = StreamToLogger(sys.stdout)
+
+    logging.info(f"=== 日志文件: {log_path} ===")
+=====END=====

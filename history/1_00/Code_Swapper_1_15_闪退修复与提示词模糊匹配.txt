@@ -1,0 +1,62 @@
+「Code_Swapper_1_15 修复退出闪退 + 提示词文件模糊匹配」
+
+########## 修改说明 ##########
+修复1：闪退问题。
+  正常流程完成后，用户选择"退出"时直接 sys.exit(0)，窗口无暂停直接关闭。
+  修复方式：在 sys.exit(0) 前加 input("\n按回车键退出...")，与出错路径保持一致。
+
+修复2：提示词文件模糊匹配。
+  原代码硬编码查找 "Code_Swapper使用提示词.txt"，带版本号时（如 _1_14.txt）找不到。
+  修复方式：精确匹配失败后，用 glob 查找 "Code_Swapper使用提示词*.txt" 的第一个匹配文件。
+########## 说明结束 ##########
+
+---
+
+**Script Context**
+- Source file: Code_Swapper_1_14.py
+
+---
+
+Modification 1 of 2
+
+Locate the following code:
+=====LOCATE=====
+        if c == '2':
+            sys.exit(0)
+        else:
+            main()
+=====REPLACE=====
+        if c == '2':
+            input("\n按回车键退出...")
+            sys.exit(0)
+        else:
+            main()
+=====END=====
+
+---
+
+Modification 2 of 2
+
+Locate the following code:
+=====LOCATE=====
+try:
+    prompt_file = SCRIPT_DIR / "Code_Swapper使用提示词.txt"
+    if prompt_file.is_file():
+        PROMPT_TEXT = prompt_file.read_text(encoding="utf-8")
+    else:
+        PROMPT_TEXT = "⚠️ 未找到提示词文件：Code_Swapper使用提示词.txt（应与脚本放在同一目录）"
+except Exception as e:
+    PROMPT_TEXT = f"⚠️ 读取提示词失败: {e}"
+=====REPLACE=====
+try:
+    prompt_file = SCRIPT_DIR / "Code_Swapper使用提示词.txt"
+    if not prompt_file.is_file():
+        candidates = sorted(SCRIPT_DIR.glob("Code_Swapper使用提示词*.txt"))
+        prompt_file = candidates[0] if candidates else prompt_file
+    if prompt_file.is_file():
+        PROMPT_TEXT = prompt_file.read_text(encoding="utf-8")
+    else:
+        PROMPT_TEXT = "⚠️ 未找到提示词文件：Code_Swapper使用提示词.txt（应与脚本放在同一目录）"
+except Exception as e:
+    PROMPT_TEXT = f"⚠️ 读取提示词失败: {e}"
+=====END=====

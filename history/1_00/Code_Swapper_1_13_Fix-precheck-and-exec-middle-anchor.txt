@@ -1,0 +1,172 @@
+「Code_Swapper_1_13 Fix-precheck-and-exec-middle-anchor」Modification Summary
+
+########## change-log ##########
+修复连续重复行场景下预检查与执行阶段的定位 bug。
+
+背景：
+  1.10 → 1.11 修复指令在执行时，10 处「删除连续重复行」的修改全部预检查失败，
+  报错「首定位行组合匹配异常」。根因是 find_unique_by_combo 仅用「前 N 行 +
+  本行」窗口判定唯一性，当目标行本身就是连续重复行时（行 N 与行 N+1 内容
+  完全相同），两个候选位置的窗口必然不同，函数误判两者都「唯一」，返回长度
+  > 1 的列表，触发异常分支。
+  执行阶段的 _start_window 用同样算法，存在对称隐患。
+
+修复思路：
+  把指令文档已经声明的中间锚行（middle_lines: Start line +1 / +2 ...）
+  纳入唯一性判定窗口。候选位置不仅本行要匹配 start_line，其后续 N 行也要
+  连续匹配 middle_lines，才算真正唯一。
+  本质上是把「中间锚行连续性校验」从原来的 else 分支前置到唯一性判定阶段。
+
+具体改动：
+  1. find_unique_by_combo 函数：增加 middle_lines 参数；候选筛选时，先按
+     middle_lines 过滤一遍——start_line 之后的 N 行必须与 middle_lines 完全
+     相同的位置，才能进入候选列表；剩下的候选再走原有的窗口去重。
+  2. precheck_prompt 调用 find_unique_by_combo(start_line, ...) 时，传入
+     middle_lines=middle_lines。
+     end_line 一侧不变（end_line 不参与中间锚行）。
+  3. execute_prompt_replacements 的 _start_window 段落对称修改：候选位置
+     先按 middle_lines 过滤，再走窗口去重。
+
+为什么不动其他地方：
+  - precheck_prompt 中 else 分支里的中间锚行连续性校验保留——它现在变成
+    冗余防御（理论上唯一性阶段已经过滤掉了不匹配的候选），但保留可读性
+    更好，且不会有副作用。
+  - end_line 侧的窗口逻辑不变。本次失败案例里 end_line 全部唯一，无需改动。
+  - parse_prompt_instruction_doc 不变，middle_lines 已经被正确解析进 mod。
+########## end-of-change-log ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+Source file: Code_Swapper_1_12.py
+Target file: Code_Swapper_1_13.py
+Three modifications, all in LOCATE/REPLACE format.
+
+Mod 1: precheck_prompt 内的 find_unique_by_combo 函数签名与候选筛选逻辑
+Mod 2: precheck_prompt 调用 find_unique_by_combo 处传入 middle_lines
+Mod 3: execute_prompt_replacements 内 start_candidates 筛选逻辑
+
+---
+
+**Modification 1 of 3**
+
+Locate the following code:
+=====LOCATE=====
+    def find_unique_by_combo(target_line: str, context_before: int, context_after: int) -> tuple[list[int], str]:
+        """
+        在 lines 中找出所有出现 target_line 的位置，
+        再用前后各取 context_before / context_after 行的组合筛选唯一性。
+        返回 (候选行号列表, 组合描述字符串)。
+        """
+        candidates = [i for i, l in enumerate(lines) if l == target_line]
+        if len(candidates) <= 1:
+            return candidates, ""
+        # 用组合窗口进一步筛选：对每个候选位置取窗口，检查是否与其他候选位置的窗口完全相同
+        def window(i: int) -> tuple:
+            lo = max(0, i - context_before)
+            hi = min(len(lines), i + context_after + 1)
+            return tuple(lines[lo:hi])
+        windows = [window(i) for i in candidates]
+        # 找出窗口唯一的候选
+        unique = [candidates[j] for j in range(len(candidates)) if windows.count(windows[j]) == 1]
+        return unique, f"（{context_before}前+{context_after}后 组合定位）"
+=====REPLACE=====
+    def find_unique_by_combo(
+        target_line: str,
+        context_before: int,
+        context_after: int,
+        middle_lines: list[str] = None,
+    ) -> tuple[list[int], str]:
+        """
+        在 lines 中找出所有出现 target_line 的位置，
+        再用前后各取 context_before / context_after 行的组合筛选唯一性。
+        如果传入 middle_lines（中间锚行列表），先用它过滤候选：
+          候选位置 i 之后的第 1..N 行必须依次等于 middle_lines[0..N-1]，
+          否则该候选被剔除。这一步用于区分「连续重复行」场景下的不同目标。
+        返回 (候选行号列表, 组合描述字符串)。
+        """
+        candidates = [i for i, l in enumerate(lines) if l == target_line]
+
+        # 用 middle_lines 过滤候选（核心修复：连续重复行场景靠这里区分）
+        if middle_lines:
+            filtered = []
+            for i in candidates:
+                ok = True
+                for offset, mid_text in enumerate(middle_lines, start=1):
+                    if i + offset >= len(lines) or lines[i + offset] != mid_text:
+                        ok = False
+                        break
+                if ok:
+                    filtered.append(i)
+            candidates = filtered
+
+        if len(candidates) <= 1:
+            return candidates, ""
+        # 用组合窗口进一步筛选：对每个候选位置取窗口，检查是否与其他候选位置的窗口完全相同
+        def window(i: int) -> tuple:
+            lo = max(0, i - context_before)
+            hi = min(len(lines), i + context_after + 1)
+            return tuple(lines[lo:hi])
+        windows = [window(i) for i in candidates]
+        # 找出窗口唯一的候选
+        unique = [candidates[j] for j in range(len(candidates)) if windows.count(windows[j]) == 1]
+        return unique, f"（{context_before}前+{context_after}后 组合定位）"
+=====END=====
+
+---
+
+**Modification 2 of 3**
+
+Locate the following code:
+=====LOCATE=====
+        # 起始定位：start_line 往前取 2 行（共 3 行组合）
+        start_unique, start_combo_desc = find_unique_by_combo(start_line, context_before=2, context_after=0)
+=====REPLACE=====
+        # 起始定位：start_line 往前取 2 行（共 3 行组合），并用中间锚行过滤候选
+        start_unique, start_combo_desc = find_unique_by_combo(
+            start_line, context_before=2, context_after=0, middle_lines=middle_lines
+        )
+=====END=====
+
+---
+
+**Modification 3 of 3**
+
+Locate the following code:
+=====LOCATE=====
+        lines      = new_content.split('\n')
+        start_line = mod["start_line"]
+        end_line   = mod["end_line"]
+
+        # 起始定位：start_line 往前取 2 行，共 3 行组合找唯一位置
+        start_candidates = [i for i, l in enumerate(lines) if l == start_line]
+        if len(start_candidates) > 1:
+            def _start_window(i): return tuple(lines[max(0, i-2):i+1])
+            wins = [_start_window(i) for i in start_candidates]
+            start_candidates = [start_candidates[j] for j in range(len(start_candidates)) if wins.count(wins[j]) == 1]
+        start_idx = start_candidates[0]
+=====REPLACE=====
+        lines        = new_content.split('\n')
+        start_line   = mod["start_line"]
+        end_line     = mod["end_line"]
+        middle_lines = mod.get("middle_lines", [])
+
+        # 起始定位：先用中间锚行过滤候选，再用「前 2 行 + 本行」3 行组合去重
+        start_candidates = [i for i, l in enumerate(lines) if l == start_line]
+        if middle_lines:
+            filtered = []
+            for i in start_candidates:
+                ok = True
+                for offset, mid_text in enumerate(middle_lines, start=1):
+                    if i + offset >= len(lines) or lines[i + offset] != mid_text:
+                        ok = False
+                        break
+                if ok:
+                    filtered.append(i)
+            start_candidates = filtered
+        if len(start_candidates) > 1:
+            def _start_window(i): return tuple(lines[max(0, i-2):i+1])
+            wins = [_start_window(i) for i in start_candidates]
+            start_candidates = [start_candidates[j] for j in range(len(start_candidates)) if wins.count(wins[j]) == 1]
+        start_idx = start_candidates[0]
+=====END=====

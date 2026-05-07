@@ -1,0 +1,79 @@
+「Code_Swapper_1_09 统一LOCATE格式」Modification Summary
+
+########## 修改说明 ##########
+删除 ``` 代码块格式的解析支持，统一只识别 =====LOCATE===== / =====REPLACE===== / =====END===== 格式。
+原因：``` 格式在 Replace 内容本身含有反引号时会导致正则提前截断，引发解析异常和闪退。
+=====格式无此问题，且更适合作为机器解析的唯一标准格式。
+########## 说明结束 ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+Single-file Python script Code_Swapper_1_08.py.
+Replace the dual-format parser with a single strict =====LOCATE===== / =====REPLACE===== / =====END===== parser.
+
+---
+
+**Modification 1 of 1**
+
+Locate the following code:
+=====LOCATE=====
+        # 提取 Locate 代码块和 Replace 代码块
+        # 优先尝试标准 ``` 格式，失败时尝试 =====LOCATE===== / =====REPLACE===== 格式
+        locate_match = re.search(
+            r'Locate(?:\s+the\s+following\s+code)?\s*:\s*\n```[a-zA-Z]*\n(.*?)\n```',
+            block,
+            re.DOTALL | re.IGNORECASE
+        )
+        replace_match = re.search(
+            r'Replace\s+with\s*:\s*\n```[a-zA-Z]*\n(.*?)\n```',
+            block,
+            re.DOTALL | re.IGNORECASE
+        )
+
+        # 备用格式：=====LOCATE===== ... =====REPLACE===== ... =====END=====
+        if not locate_match or not replace_match:
+            locate_match2 = re.search(
+                r'Locate(?:\s+the\s+following\s+code)?\s*:\s*\n=====LOCATE=====\n(.*?)\n=====REPLACE=====',
+                block,
+                re.DOTALL | re.IGNORECASE
+            )
+            replace_match2 = re.search(
+                r'=====REPLACE=====\n(.*?)\n=====END=====',
+                block,
+                re.DOTALL | re.IGNORECASE
+            )
+            if locate_match2 and replace_match2:
+                locate_match = locate_match2
+                replace_match = replace_match2
+
+        if not locate_match or not replace_match:
+            raise ValueError(
+                f"Modification {idx}: 无法解析出 Locate 或 Replace 代码块。\n"
+                f"请检查该块格式是否正确（支持 ```代码块``` 或 =====LOCATE===== 边界格式）。"
+            )
+=====REPLACE=====
+        # 提取 Locate / Replace 代码块（唯一格式：=====LOCATE===== / =====REPLACE===== / =====END=====）
+        locate_match = re.search(
+            r'Locate(?:\s+the\s+following\s+code)?\s*:\s*\n=====LOCATE=====\n(.*?)\n=====REPLACE=====',
+            block,
+            re.DOTALL | re.IGNORECASE
+        )
+        replace_match = re.search(
+            r'=====REPLACE=====\n(.*?)\n=====END=====',
+            block,
+            re.DOTALL | re.IGNORECASE
+        )
+
+        if not locate_match or not replace_match:
+            raise ValueError(
+                f"Modification {idx}: 无法解析出 Locate 或 Replace 代码块。\n"
+                f"格式要求：\n"
+                f"  Locate the following code:\n"
+                f"  =====LOCATE=====\n"
+                f"  [原始代码]\n"
+                f"  =====REPLACE=====\n"
+                f"  [新代码]\n"
+                f"  =====END====="
+            )
+=====END=====

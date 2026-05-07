@@ -1,0 +1,145 @@
+「Code_Swapper_1_08 全局异常捕获与运行日志」Modification Summary
+
+########## 修改说明 ##########
+两项修复合并：
+1. 全局异常捕获：在入口处套 try/except，任何未处理异常都会打印错误信息并等待用户按回车，
+   彻底解决闪退看不到报错的问题。
+2. 运行日志系统：新增 init_log() 函数，脚本启动即在 Work/logs/ 下按时间戳创建日志文件，
+   所有 print() 同步写入日志。日志上限 60 份，超过时自动删除最旧的直到剩 30 份。
+########## 说明结束 ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+Single-file Python script Code_Swapper_1_07.py.
+Add global exception handler at entry point and a logging system that writes
+to Work/logs/ from startup, with rotation: max 60 files, delete oldest down to 30.
+
+---
+
+**Modification 1 of 4**
+
+Locate the following code:
+```
+import sys
+import re
+import shutil
+import json
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from pathlib import Path
+```
+Replace with:
+```
+import sys
+import re
+import shutil
+import json
+import logging
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from pathlib import Path
+from datetime import datetime
+```
+
+---
+
+**Modification 2 of 4**
+
+Locate the following code:
+```
+# Work 文件夹和 config.json 路径（脚本同目录下的 Work/ 子文件夹）
+SCRIPT_DIR = Path(__file__).resolve().parent
+WORK_DIR = SCRIPT_DIR / "Work"
+CONFIG_PATH = WORK_DIR / "config.json"
+```
+Replace with:
+```
+# Work 文件夹和 config.json 路径（脚本同目录下的 Work/ 子文件夹）
+SCRIPT_DIR = Path(__file__).resolve().parent
+WORK_DIR = SCRIPT_DIR / "Work"
+CONFIG_PATH = WORK_DIR / "config.json"
+LOGS_DIR = WORK_DIR / "logs"
+
+# 日志上限配置
+LOG_MAX_COUNT = 60   # 超过此数量触发清理
+LOG_KEEP_COUNT = 30  # 清理后保留数量
+```
+
+---
+
+**Modification 3 of 4**
+
+Locate the following code:
+```
+# ============================================================
+# 路径记忆 — config.json 读写
+# ============================================================
+```
+Replace with:
+```
+# ============================================================
+# 日志初始化
+# ============================================================
+def init_log() -> None:
+    """
+    在 Work/logs/ 下创建本次运行的日志文件（按时间戳命名）。
+    同时将 logging 配置为同步输出到控制台和日志文件。
+    超过 LOG_MAX_COUNT 份时，删除最旧的直到剩 LOG_KEEP_COUNT 份。
+    """
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 日志轮转：超过上限则删除最旧的
+    existing = sorted(LOGS_DIR.glob("run_*.log"))
+    if len(existing) >= LOG_MAX_COUNT:
+        to_delete = existing[:len(existing) - LOG_KEEP_COUNT + 1]
+        for f in to_delete:
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+    # 创建本次日志文件
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = LOGS_DIR / f"run_{timestamp}.log"
+
+    # 配置 logging：同时输出到控制台和文件
+    log_format = "%(asctime)s %(message)s"
+    date_format = "%H:%M:%S"
+    logging.basicConfig(
+        level=logging.INFO,
+        format=log_format,
+        datefmt=date_format,
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(log_path, encoding="utf-8"),
+        ],
+    )
+    logging.info(f"=== 日志文件: {log_path} ===")
+
+
+# ============================================================
+# 路径记忆 — config.json 读写
+# ============================================================
+```
+
+---
+
+**Modification 4 of 4**
+
+Locate the following code:
+```
+if __name__ == "__main__":
+    main()
+```
+Replace with:
+```
+if __name__ == "__main__":
+    init_log()
+    try:
+        main()
+    except Exception as e:
+        logging.exception(f"❌ 未处理的异常: {e}")
+        input("\n按回车键退出...")
+        sys.exit(99)
+```

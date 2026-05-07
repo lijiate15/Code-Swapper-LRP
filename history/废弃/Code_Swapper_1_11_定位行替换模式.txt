@@ -1,0 +1,272 @@
+「Code_Swapper_1_11 定位行替换模式」Modification Summary
+
+########## 修改说明 ##########
+新增「定位行模式」，用首尾各一行唯一文字定位替换范围，将两行之间的内容整体替换，
+首尾定位行本身保留不动。与现有 =====LOCATE===== 模式并存，解析器自动识别用哪种。
+主要用途：解决提示词文档等含有特殊格式符号的文件无法用 Locate 字符串匹配的问题。
+指令格式：
+  Start line: [首定位行完整内容]
+  End line: [尾定位行完整内容]
+  Replace with:
+  =====REPLACE=====
+  [新内容，不含首尾定位行]
+  =====END=====
+########## 说明结束 ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+Single-file Python script Code_Swapper_1_10.py.
+Add "boundary-line mode" parser alongside existing LOCATE mode.
+The dict gains two new keys: "mode" ("locate" or "boundary") and
+"start_line" / "end_line" for boundary mode.
+Precheck and execute_replacements both need updating to handle the new mode.
+
+---
+
+**Modification 1 of 4**
+
+Locate the following code:
+=====LOCATE=====
+    返回 list，每项是 dict:
+      {
+        "index":   int,    # 第几个 Modification (1-based)
+        "skip":    bool,   # 是否为 [SKIP] 标记
+        "locate":  str,    # 原始代码（skip=True 时为空）
+        "replace": str,    # 新代码（skip=True 时为空）
+        "raw_block": str,  # 原始文本（便于报错时显示）
+      }
+=====REPLACE=====
+    返回 list，每项是 dict:
+      {
+        "index":      int,    # 第几个 Modification (1-based)
+        "skip":       bool,   # 是否为 [SKIP] 标记
+        "mode":       str,    # "locate" 或 "boundary"
+        "locate":     str,    # 原始代码（mode="locate" 且 skip=False 时有效）
+        "replace":    str,    # 新代码（skip=False 时有效）
+        "start_line": str,    # 首定位行（mode="boundary" 时有效）
+        "end_line":   str,    # 尾定位行（mode="boundary" 时有效）
+        "raw_block":  str,    # 原始文本（便于报错时显示）
+      }
+=====END=====
+
+---
+
+**Modification 2 of 4**
+
+Locate the following code:
+=====LOCATE=====
+        # 提取 Locate / Replace 代码块（唯一格式：=====LOCATE===== / =====REPLACE===== / =====END=====）
+        locate_match = re.search(
+            r'Locate(?:\s+the\s+following\s+code)?\s*:\s*\n=====LOCATE=====\n(.*?)\n=====REPLACE=====',
+            block,
+            re.DOTALL | re.IGNORECASE
+        )
+        replace_match = re.search(
+            r'=====REPLACE=====\n(.*?)\n=====END=====',
+            block,
+            re.DOTALL | re.IGNORECASE
+        )
+
+        if not locate_match or not replace_match:
+            raise ValueError(
+                f"Modification {idx}: 无法解析出 Locate 或 Replace 代码块。\n"
+                f"格式要求：\n"
+                f"  Locate the following code:\n"
+                f"  =====LOCATE=====\n"
+                f"  [原始代码]\n"
+                f"  =====REPLACE=====\n"
+                f"  [新代码]\n"
+                f"  =====END====="
+            )
+
+        results.append({
+            "index": idx,
+            "skip": False,
+            "locate": locate_match.group(1).replace('\r\n', '\n').replace('\r', '\n'),
+            "replace": replace_match.group(1).replace('\r\n', '\n').replace('\r', '\n'),
+            "raw_block": block,
+        })
+=====REPLACE=====
+        # ── 模式判断：优先检测定位行模式，其次 LOCATE 模式 ──
+        start_line_match = re.search(
+            r'^Start line:\s*(.+)$',
+            block,
+            re.IGNORECASE | re.MULTILINE
+        )
+        end_line_match = re.search(
+            r'^End line:\s*(.+)$',
+            block,
+            re.IGNORECASE | re.MULTILINE
+        )
+
+        if start_line_match and end_line_match:
+            # 定位行模式
+            replace_match = re.search(
+                r'Replace\s+with\s*:\s*\n=====REPLACE=====\n(.*?)\n=====END=====',
+                block,
+                re.DOTALL | re.IGNORECASE
+            )
+            if not replace_match:
+                raise ValueError(
+                    f"Modification {idx}: 定位行模式下未找到 Replace with / =====REPLACE===== / =====END=====。\n"
+                    f"格式要求：\n"
+                    f"  Start line: [首定位行完整内容]\n"
+                    f"  End line: [尾定位行完整内容]\n"
+                    f"  Replace with:\n"
+                    f"  =====REPLACE=====\n"
+                    f"  [新内容]\n"
+                    f"  =====END====="
+                )
+            results.append({
+                "index": idx,
+                "skip": False,
+                "mode": "boundary",
+                "locate": "",
+                "replace": replace_match.group(1).replace('\r\n', '\n').replace('\r', '\n'),
+                "start_line": start_line_match.group(1).strip(),
+                "end_line": end_line_match.group(1).strip(),
+                "raw_block": block,
+            })
+        else:
+            # LOCATE 模式
+            locate_match = re.search(
+                r'Locate(?:\s+the\s+following\s+code)?\s*:\s*\n=====LOCATE=====\n(.*?)\n=====REPLACE=====',
+                block,
+                re.DOTALL | re.IGNORECASE
+            )
+            replace_match = re.search(
+                r'=====REPLACE=====\n(.*?)\n=====END=====',
+                block,
+                re.DOTALL | re.IGNORECASE
+            )
+
+            if not locate_match or not replace_match:
+                raise ValueError(
+                    f"Modification {idx}: 无法解析出 Locate 或 Replace 代码块。\n"
+                    f"支持两种格式：\n"
+                    f"  [LOCATE模式]\n"
+                    f"  Locate the following code:\n"
+                    f"  =====LOCATE=====\n"
+                    f"  [原始代码]\n"
+                    f"  =====REPLACE=====\n"
+                    f"  [新代码]\n"
+                    f"  =====END=====\n\n"
+                    f"  [定位行模式]\n"
+                    f"  Start line: [首定位行完整内容]\n"
+                    f"  End line: [尾定位行完整内容]\n"
+                    f"  Replace with:\n"
+                    f"  =====REPLACE=====\n"
+                    f"  [新内容]\n"
+                    f"  =====END====="
+                )
+
+            results.append({
+                "index": idx,
+                "skip": False,
+                "mode": "locate",
+                "locate": locate_match.group(1).replace('\r\n', '\n').replace('\r', '\n'),
+                "replace": replace_match.group(1).replace('\r\n', '\n').replace('\r', '\n'),
+                "start_line": "",
+                "end_line": "",
+                "raw_block": block,
+            })
+=====END=====
+
+---
+
+**Modification 3 of 4**
+
+Locate the following code:
+=====LOCATE=====
+        locate = mod["locate"]
+        count = source_content.count(locate)
+
+        if count == 1:
+            report.append(f"  Mod {idx}: ✅ 找到唯一匹配")
+        elif count == 0:
+            all_pass = False
+            preview = locate.strip().split('\n')[0][:60]
+            report.append(
+                f"  Mod {idx}: ❌ 未找到！Locate 字符串不存在于源文件\n"
+                f"           首行预览: {preview!r}"
+            )
+        else:
+            all_pass = False
+            preview = locate.strip().split('\n')[0][:60]
+            report.append(
+                f"  Mod {idx}: ❌ 找到 {count} 处匹配！无法确定改哪一处\n"
+                f"           首行预览: {preview!r}"
+            )
+=====REPLACE=====
+        if mod.get("mode", "locate") == "boundary":
+            # 定位行模式预检查：首尾定位行各自必须唯一匹配
+            lines = source_content.split('\n')
+            start_line = mod["start_line"]
+            end_line = mod["end_line"]
+
+            start_matches = [i for i, l in enumerate(lines) if l == start_line]
+            end_matches = [i for i, l in enumerate(lines) if l == end_line]
+
+            if len(start_matches) == 0:
+                all_pass = False
+                report.append(f"  Mod {idx}: ❌ 首定位行未找到: {start_line!r}")
+            elif len(start_matches) > 1:
+                all_pass = False
+                report.append(f"  Mod {idx}: ❌ 首定位行找到 {len(start_matches)} 处匹配，必须唯一: {start_line!r}")
+            elif len(end_matches) == 0:
+                all_pass = False
+                report.append(f"  Mod {idx}: ❌ 尾定位行未找到: {end_line!r}")
+            elif len(end_matches) > 1:
+                all_pass = False
+                report.append(f"  Mod {idx}: ❌ 尾定位行找到 {len(end_matches)} 处匹配，必须唯一: {end_line!r}")
+            elif end_matches[0] <= start_matches[0]:
+                all_pass = False
+                report.append(f"  Mod {idx}: ❌ 尾定位行（行{end_matches[0]+1}）不在首定位行（行{start_matches[0]+1}）之后")
+            else:
+                report.append(f"  Mod {idx}: ✅ 定位行模式 — 首行{start_matches[0]+1} / 尾行{end_matches[0]+1}，替换中间 {end_matches[0]-start_matches[0]-1} 行")
+        else:
+            locate = mod["locate"]
+            count = source_content.count(locate)
+
+            if count == 1:
+                report.append(f"  Mod {idx}: ✅ 找到唯一匹配")
+            elif count == 0:
+                all_pass = False
+                preview = locate.strip().split('\n')[0][:60]
+                report.append(
+                    f"  Mod {idx}: ❌ 未找到！Locate 字符串不存在于源文件\n"
+                    f"           首行预览: {preview!r}"
+                )
+            else:
+                all_pass = False
+                preview = locate.strip().split('\n')[0][:60]
+                report.append(
+                    f"  Mod {idx}: ❌ 找到 {count} 处匹配！无法确定改哪一处\n"
+                    f"           首行预览: {preview!r}"
+                )
+=====END=====
+
+---
+
+**Modification 4 of 4**
+
+Locate the following code:
+=====LOCATE=====
+        new_content = new_content.replace(mod["locate"], mod["replace"], 1)
+        report.append(f"  Mod {idx}: ✅ 已替换")
+=====REPLACE=====
+        if mod.get("mode", "locate") == "boundary":
+            # 定位行模式：找到首尾行，替换中间内容
+            lines = new_content.split('\n')
+            start_line = mod["start_line"]
+            end_line = mod["end_line"]
+            start_idx = next(i for i, l in enumerate(lines) if l == start_line)
+            end_idx = next(i for i, l in enumerate(lines) if l == end_line)
+            new_lines = lines[:start_idx + 1] + mod["replace"].split('\n') + lines[end_idx:]
+            new_content = '\n'.join(new_lines)
+            report.append(f"  Mod {idx}: ✅ 已替换（定位行模式）")
+        else:
+            new_content = new_content.replace(mod["locate"], mod["replace"], 1)
+            report.append(f"  Mod {idx}: ✅ 已替换")
+=====END=====

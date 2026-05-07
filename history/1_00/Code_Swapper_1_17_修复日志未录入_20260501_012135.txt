@@ -1,0 +1,183 @@
+「Code_Swapper_1_17 修复日志文件未录入内容的BUG」
+
+########## 修改说明 ##########
+问题根因：init_log() 在程序入口处调用，但 main() 全程使用 print()，
+logging 从未被调用，日志文件只有第一行记录。
+
+修复方案：
+1. init_log() 改为只配置 FileHandler（不再配置 StreamHandler），
+   并用 StreamToLogger 将 sys.stdout 重定向到 logging，使所有
+   print() 自动写入日志。
+2. init_log() 的调用从 __main__ 块移除，改为在 main() 菜单判断
+   选项 2 或 3 之后才调用——此时 tkinter 菜单交互已完全结束，
+   不会影响剪贴板操作。命令行模式（sys.argv==3）在读取参数后调用。
+3. 选项 1（查看提示词）完全不触发日志初始化，__main__ 块只保留
+   异常捕获兜底（不再调用 init_log()）。
+
+注意：StreamToLogger 按行缓冲，空行不写入日志，避免产生大量空记录。
+########## 说明结束 ##########
+
+---
+
+Modification 1 of 3
+
+Locate the following code:
+=====LOCATE=====
+# ============================================================
+# 日志初始化
+# ============================================================
+def init_log() -> None:
+    """
+    在 Work/logs/ 下创建本次运行的日志文件（按时间戳命名）。
+    同时将 logging 配置为同步输出到控制台和日志文件。
+    超过 LOG_MAX_COUNT 份时，删除最旧的直到剩 LOG_KEEP_COUNT 份。
+    """
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 日志轮转：超过上限则删除最旧的
+    existing = sorted(LOGS_DIR.glob("run_*.log"))
+    if len(existing) >= LOG_MAX_COUNT:
+        to_delete = existing[:len(existing) - LOG_KEEP_COUNT + 1]
+        for f in to_delete:
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+    # 创建本次日志文件
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = LOGS_DIR / f"run_{timestamp}.log"
+
+    # 配置 logging：同时输出到控制台和文件
+    log_format = "%(asctime)s %(message)s"
+    date_format = "%H:%M:%S"
+    logging.basicConfig(
+        level=logging.INFO,
+        format=log_format,
+        datefmt=date_format,
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(log_path, encoding="utf-8"),
+        ],
+    )
+    logging.info(f"=== 日志文件: {log_path} ===")
+=====REPLACE=====
+# ============================================================
+# 日志初始化
+# ============================================================
+class StreamToLogger:
+    """
+    将 sys.stdout 的写入转发到 logging.info，同时保留原始控制台输出。
+    这样所有 print() 语句无需修改即可同步写入日志文件。
+    按行缓冲，空行不写入日志。
+    """
+    def __init__(self, original_stdout):
+        self._original = original_stdout
+        self._buf = ""
+
+    def write(self, msg):
+        self._original.write(msg)
+        self._buf += msg
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if line:
+                logging.info(line)
+
+    def flush(self):
+        self._original.flush()
+
+    def isatty(self):
+        return self._original.isatty()
+
+
+def init_log() -> None:
+    """
+    在 Work/logs/ 下创建本次运行的日志文件（按时间戳命名）。
+    仅在选项 2 / 3 / 命令行模式下调用，选项 1 不调用。
+    调用后将 sys.stdout 替换为 StreamToLogger，使所有 print() 自动写入日志。
+    超过 LOG_MAX_COUNT 份时，删除最旧的直到剩 LOG_KEEP_COUNT 份。
+    """
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 日志轮转：超过上限则删除最旧的
+    existing = sorted(LOGS_DIR.glob("run_*.log"))
+    if len(existing) >= LOG_MAX_COUNT:
+        to_delete = existing[:len(existing) - LOG_KEEP_COUNT + 1]
+        for f in to_delete:
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+    # 创建本次日志文件
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = LOGS_DIR / f"run_{timestamp}.log"
+
+    # 配置 logging：只写文件，控制台由 StreamToLogger 负责
+    log_format = "%(asctime)s %(message)s"
+    date_format = "%H:%M:%S"
+    logging.basicConfig(
+        level=logging.INFO,
+        format=log_format,
+        datefmt=date_format,
+        handlers=[
+            logging.FileHandler(log_path, encoding="utf-8"),
+        ],
+    )
+
+    # 替换 sys.stdout，使所有 print() 自动同步写入日志
+    sys.stdout = StreamToLogger(sys.stdout)
+
+    logging.info(f"=== 日志文件: {log_path} ===")
+=====END=====
+
+---
+
+Modification 2 of 3
+
+Locate the following code:
+=====LOCATE=====
+        if choice == '3':
+            source_path, instruction_path = run_prompt_modification()
+        else:
+            print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+            source_path, instruction_path = select_files_via_dialog()
+
+    else:
+        print(__doc__)
+=====REPLACE=====
+        if choice == '3':
+            init_log()
+            source_path, instruction_path = run_prompt_modification()
+        else:
+            init_log()
+            print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+            source_path, instruction_path = select_files_via_dialog()
+
+    else:
+        print(__doc__)
+=====END=====
+
+---
+
+Modification 3 of 3
+
+Locate the following code:
+=====LOCATE=====
+if __name__ == "__main__":
+    init_log()
+    try:
+        main()
+    except Exception as e:
+        logging.exception(f"❌ 未处理的异常: {e}")
+        input("\n按回车键退出...")
+        sys.exit(99)
+=====REPLACE=====
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        logging.exception(f"❌ 未处理的异常: {e}")
+        input("\n按回车键退出...")
+        sys.exit(99)
+=====END=====

@@ -1,0 +1,129 @@
+「Code_Swapper_1_13 菜单扩展选项3」Modification Summary
+
+########## 修改说明 ##########
+在 1_12 的基础上，扩展菜单为3个选项，新增「3. 修改提示词」入口，
+调用 run_prompt_modification() 进入提示词修改流程。
+同时修复完成后「继续」的选项提示文字，统一改为「继续修改」。
+########## 说明结束 ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+Single-file Python script Code_Swapper_1_12.py.
+Expand the menu from 2 to 3 options and wire option 3 to run_prompt_modification().
+
+---
+
+**Modification 1 of 2**
+
+Locate the following code:
+=====LOCATE=====
+        # 菜单模式
+        while True:
+            print("\n请选择操作：")
+            print("  1. 查看使用提示词（并复制提示词到剪切板）")
+            print("  2. 进行代码修改")
+            choice = input("请输入选项 (1/2): ").strip()
+            if choice == '1':
+                print("\n" + "=" * 60)
+                print(PROMPT_TEXT.strip())
+                print("=" * 60)
+                # 复制提示词到系统剪切板（tkinter 原生，无需第三方库）
+                try:
+                    root = tk.Tk()
+                    root.withdraw()
+                    root.clipboard_clear()
+                    root.clipboard_append(PROMPT_TEXT.strip())
+                    root.update()
+                    root.destroy()
+                    print("已复制提示词到剪切板。")
+                except Exception as e:
+                    print(f"⚠️ 复制到剪切板失败: {e}")
+                print("\n请选择：")
+                print("  1. 继续代码修改（回车默认）")
+                print("  2. 退出")
+                c = input("请输入选项 (1/2，回车默认1): ").strip()
+                if c == '2':
+                    sys.exit(0)
+            if choice in ('', '1', '2'):
+                if choice != '1':
+                    break
+            else:
+                print("无效输入，请输入 1 或 2")
+                continue
+            if choice == '2':
+                break
+        print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+        source_path, instruction_path = select_files_via_dialog()
+=====REPLACE=====
+        # 菜单模式
+        while True:
+            print("\n请选择操作：")
+            print("  1. 查看使用提示词（并复制提示词到剪切板）")
+            print("  2. 进行代码修改")
+            print("  3. 修改提示词")
+            choice = input("请输入选项 (1/2/3): ").strip()
+            if choice == '1':
+                print("\n" + "=" * 60)
+                print(PROMPT_TEXT.strip())
+                print("=" * 60)
+                # 复制提示词到系统剪切板（tkinter 原生，无需第三方库）
+                try:
+                    root = tk.Tk()
+                    root.withdraw()
+                    root.clipboard_clear()
+                    root.clipboard_append(PROMPT_TEXT.strip())
+                    root.update()
+                    root.destroy()
+                    print("已复制提示词到剪切板。")
+                except Exception as e:
+                    print(f"⚠️ 复制到剪切板失败: {e}")
+                print("\n请选择：")
+                print("  1. 继续修改（回车默认）")
+                print("  2. 退出")
+                c = input("请输入选项 (1/2，回车默认1): ").strip()
+                if c == '2':
+                    sys.exit(0)
+            if choice in ('', '1', '2', '3'):
+                if choice != '1':
+                    break
+            else:
+                print("无效输入，请输入 1、2 或 3")
+                continue
+            if choice in ('2', '3'):
+                break
+        if choice == '3':
+            source_path, instruction_path = run_prompt_modification()
+        else:
+            print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+            source_path, instruction_path = select_files_via_dialog()
+=====END=====
+
+---
+
+**Modification 2 of 2**
+
+Locate the following code:
+=====LOCATE=====
+    # 修改成功后询问是否继续
+    if len(sys.argv) == 1:
+        print("\n请选择：")
+        print("  1. 继续代码修改（回车默认）")
+        print("  2. 退出")
+        c = input("请输入选项 (1/2，回车默认1): ").strip()
+        if c == '2':
+            sys.exit(0)
+        else:
+            main()
+=====REPLACE=====
+    # 修改成功后询问是否继续
+    if len(sys.argv) == 1:
+        print("\n请选择：")
+        print("  1. 继续修改（回车默认）")
+        print("  2. 退出")
+        c = input("请输入选项 (1/2，回车默认1): ").strip()
+        if c == '2':
+            sys.exit(0)
+        else:
+            main()
+=====END=====

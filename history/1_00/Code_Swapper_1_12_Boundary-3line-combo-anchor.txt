@@ -1,0 +1,278 @@
+「Code_Swapper_1_12 Boundary-3line-combo-anchor」Modification Summary
+
+########## change-log ##########
+修复 boundary 模式的定位唯一性校验逻辑：
+- 起始定位：从 start_line 往前取 2 行，共 3 行组合（start_idx-2, start_idx-1, start_idx）验证唯一性
+- 终止定位：从 end_line 往后取 2 行，共 3 行组合（end_idx, end_idx+1, end_idx+2）验证唯一性
+- 中间锚行（+1/+2）保留，继续做连续性校验，不再参与起始唯一性判断
+- execute_prompt_replacements 同步使用组合匹配定位，与预检查逻辑一致
+########## end-of-change-log ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+Source file: Code_Swapper_1_11.py
+Target file: Code_Swapper_1_12.py (version +1)
+Language: Python, comments in Chinese
+
+---
+
+**Modification 1 of 2**
+
+Locate the following code:
+=====LOCATE=====
+def precheck_prompt(source_content: str, modifications: list[dict]) -> tuple[bool, list[str]]:
+    """
+    提示词修改专用预检查：验证所有 boundary 定位行能否唯一精确匹配。
+    返回 (是否全部通过, 报告行列表)。
+    """
+    report = []
+    all_pass = True
+    lines = source_content.split('\n')
+
+    for mod in modifications:
+        idx = mod["index"]
+
+        if mod["skip"]:
+            report.append(f"  Mod {idx}: ⚠️  跳过（[SKIP] 确认项，无需修改）")
+            continue
+
+        start_line   = mod["start_line"]
+        end_line     = mod["end_line"]
+        middle_lines = mod.get("middle_lines", [])
+
+        start_matches = [i for i, l in enumerate(lines) if l == start_line]
+        end_matches   = [i for i, l in enumerate(lines) if l == end_line]
+
+        if len(start_matches) == 0:
+            all_pass = False
+            report.append(f"  Mod {idx}: ❌ 首定位行未找到: {start_line!r}")
+        elif len(start_matches) > 1:
+            all_pass = False
+            report.append(f"  Mod {idx}: ❌ 首定位行找到 {len(start_matches)} 处匹配，必须唯一: {start_line!r}")
+        elif len(end_matches) == 0:
+            all_pass = False
+            report.append(f"  Mod {idx}: ❌ 尾定位行未找到: {end_line!r}")
+        elif len(end_matches) > 1:
+            all_pass = False
+            report.append(f"  Mod {idx}: ❌ 尾定位行找到 {len(end_matches)} 处匹配，必须唯一: {end_line!r}")
+        elif end_matches[0] <= start_matches[0]:
+            all_pass = False
+            report.append(
+                f"  Mod {idx}: ❌ 尾定位行（行{end_matches[0]+1}）不在首定位行（行{start_matches[0]+1}）之后"
+            )
+        else:
+            # 中间锚行连续性校验
+            start_idx = start_matches[0]
+            end_idx   = end_matches[0]
+            continuity_ok  = True
+            continuity_err = ""
+            for offset, mid_text in enumerate(middle_lines, start=1):
+                expected_idx = start_idx + offset
+                if expected_idx >= end_idx:
+                    continuity_ok = False
+                    continuity_err = (
+                        f"中间锚行 +{offset} 越过了尾定位行（首行{start_idx+1} → 尾行{end_idx+1}，"
+                        f"中间只有 {end_idx-start_idx-1} 行可容纳）"
+                    )
+                    break
+                if lines[expected_idx] != mid_text:
+                    continuity_ok = False
+                    continuity_err = (
+                        f"中间锚行 +{offset} 与源文件第 {expected_idx+1} 行不一致\n"
+                        f"           期望: {mid_text!r}\n"
+                        f"           实际: {lines[expected_idx]!r}"
+                    )
+                    break
+
+            if not continuity_ok:
+                all_pass = False
+                report.append(f"  Mod {idx}: ❌ {continuity_err}")
+            else:
+                mid_info = f"，含 {len(middle_lines)} 条中间锚行" if middle_lines else ""
+                report.append(
+                    f"  Mod {idx}: ✅ 定位行模式 — 首行{start_idx+1} / 尾行{end_idx+1}"
+                    f"，替换中间 {end_idx-start_idx-1} 行{mid_info}"
+                )
+
+    return all_pass, report
+=====REPLACE=====
+def precheck_prompt(source_content: str, modifications: list[dict]) -> tuple[bool, list[str]]:
+    """
+    提示词修改专用预检查：验证所有 boundary 定位行能否唯一精确匹配。
+    起始定位：start_line 往前取 2 行，共 3 行组合验证唯一性。
+    终止定位：end_line 往后取 2 行，共 3 行组合验证唯一性。
+    返回 (是否全部通过, 报告行列表)。
+    """
+    report = []
+    all_pass = True
+    lines = source_content.split('\n')
+
+    def find_unique_by_combo(target_line: str, context_before: int, context_after: int) -> tuple[list[int], str]:
+        """
+        在 lines 中找出所有出现 target_line 的位置，
+        再用前后各取 context_before / context_after 行的组合筛选唯一性。
+        返回 (候选行号列表, 组合描述字符串)。
+        """
+        candidates = [i for i, l in enumerate(lines) if l == target_line]
+        if len(candidates) <= 1:
+            return candidates, ""
+        # 用组合窗口进一步筛选：对每个候选位置取窗口，检查是否与其他候选位置的窗口完全相同
+        def window(i: int) -> tuple:
+            lo = max(0, i - context_before)
+            hi = min(len(lines), i + context_after + 1)
+            return tuple(lines[lo:hi])
+        windows = [window(i) for i in candidates]
+        # 找出窗口唯一的候选
+        unique = [candidates[j] for j in range(len(candidates)) if windows.count(windows[j]) == 1]
+        return unique, f"（{context_before}前+{context_after}后 组合定位）"
+
+    for mod in modifications:
+        idx = mod["index"]
+
+        if mod["skip"]:
+            report.append(f"  Mod {idx}: ⚠️  跳过（[SKIP] 确认项，无需修改）")
+            continue
+
+        start_line   = mod["start_line"]
+        end_line     = mod["end_line"]
+        middle_lines = mod.get("middle_lines", [])
+
+        # 起始定位：start_line 往前取 2 行（共 3 行组合）
+        start_unique, start_combo_desc = find_unique_by_combo(start_line, context_before=2, context_after=0)
+        # 终止定位：end_line 往后取 2 行（共 3 行组合）
+        end_unique, end_combo_desc = find_unique_by_combo(end_line, context_before=0, context_after=2)
+
+        # 原始候选数（用于区分「未找到」vs「不唯一」的报错文字）
+        start_all = [i for i, l in enumerate(lines) if l == start_line]
+        end_all   = [i for i, l in enumerate(lines) if l == end_line]
+
+        if len(start_all) == 0:
+            all_pass = False
+            report.append(f"  Mod {idx}: ❌ 首定位行未找到: {start_line!r}")
+        elif len(start_unique) == 0:
+            all_pass = False
+            report.append(
+                f"  Mod {idx}: ❌ 首定位行找到 {len(start_all)} 处，3行组合仍不唯一: {start_line!r}\n"
+                f"           请在对话中告知 AI 扩展前置上下文行数"
+            )
+        elif len(start_unique) > 1:
+            # 理论上不会到这里，保险起见保留
+            all_pass = False
+            report.append(f"  Mod {idx}: ❌ 首定位行组合匹配异常，请检查: {start_line!r}")
+        elif len(end_all) == 0:
+            all_pass = False
+            report.append(f"  Mod {idx}: ❌ 尾定位行未找到: {end_line!r}")
+        elif len(end_unique) == 0:
+            all_pass = False
+            report.append(
+                f"  Mod {idx}: ❌ 尾定位行找到 {len(end_all)} 处，3行组合仍不唯一: {end_line!r}\n"
+                f"           请在对话中告知 AI 扩展后置上下文行数"
+            )
+        elif len(end_unique) > 1:
+            all_pass = False
+            report.append(f"  Mod {idx}: ❌ 尾定位行组合匹配异常，请检查: {end_line!r}")
+        elif end_unique[0] <= start_unique[0]:
+            all_pass = False
+            report.append(
+                f"  Mod {idx}: ❌ 尾定位行（行{end_unique[0]+1}）不在首定位行（行{start_unique[0]+1}）之后"
+            )
+        else:
+            # 中间锚行连续性校验
+            start_idx = start_unique[0]
+            end_idx   = end_unique[0]
+            continuity_ok  = True
+            continuity_err = ""
+            for offset, mid_text in enumerate(middle_lines, start=1):
+                expected_idx = start_idx + offset
+                if expected_idx >= end_idx:
+                    continuity_ok = False
+                    continuity_err = (
+                        f"中间锚行 +{offset} 越过了尾定位行（首行{start_idx+1} → 尾行{end_idx+1}，"
+                        f"中间只有 {end_idx-start_idx-1} 行可容纳）"
+                    )
+                    break
+                if lines[expected_idx] != mid_text:
+                    continuity_ok = False
+                    continuity_err = (
+                        f"中间锚行 +{offset} 与源文件第 {expected_idx+1} 行不一致\n"
+                        f"           期望: {mid_text!r}\n"
+                        f"           实际: {lines[expected_idx]!r}"
+                    )
+                    break
+
+            if not continuity_ok:
+                all_pass = False
+                report.append(f"  Mod {idx}: ❌ {continuity_err}")
+            else:
+                combo_note = f" {start_combo_desc}" if start_combo_desc else ""
+                mid_info = f"，含 {len(middle_lines)} 条中间锚行" if middle_lines else ""
+                report.append(
+                    f"  Mod {idx}: ✅ 定位行模式{combo_note} — 首行{start_idx+1} / 尾行{end_idx+1}"
+                    f"，替换中间 {end_idx-start_idx-1} 行{mid_info}"
+                )
+
+    return all_pass, report
+=====END=====
+
+---
+
+**Modification 2 of 2**
+
+Locate the following code:
+=====LOCATE=====
+    for mod in modifications:
+        idx = mod["index"]
+        if mod["skip"]:
+            report.append(f"  Mod {idx}: ⚠️  跳过（[SKIP]）")
+            continue
+
+        lines      = new_content.split('\n')
+        start_line = mod["start_line"]
+        end_line   = mod["end_line"]
+        start_idx  = next(i for i, l in enumerate(lines) if l == start_line)
+        end_idx    = next(i for i, l in enumerate(lines) if l == end_line)
+        new_lines  = lines[:start_idx + 1] + mod["replace"].split('\n') + lines[end_idx:]
+        new_content = '\n'.join(new_lines)
+        report.append(f"  Mod {idx}: ✅ 已替换（定位行模式）")
+
+    target_path.write_text(new_content, encoding=encoding)
+    report.append(f"  ✅ 已保存: {target_path.name}")
+
+    return report
+=====REPLACE=====
+    for mod in modifications:
+        idx = mod["index"]
+        if mod["skip"]:
+            report.append(f"  Mod {idx}: ⚠️  跳过（[SKIP]）")
+            continue
+
+        lines      = new_content.split('\n')
+        start_line = mod["start_line"]
+        end_line   = mod["end_line"]
+
+        # 起始定位：start_line 往前取 2 行，共 3 行组合找唯一位置
+        start_candidates = [i for i, l in enumerate(lines) if l == start_line]
+        if len(start_candidates) > 1:
+            def _start_window(i): return tuple(lines[max(0, i-2):i+1])
+            wins = [_start_window(i) for i in start_candidates]
+            start_candidates = [start_candidates[j] for j in range(len(start_candidates)) if wins.count(wins[j]) == 1]
+        start_idx = start_candidates[0]
+
+        # 终止定位：end_line 往后取 2 行，共 3 行组合找唯一位置
+        end_candidates = [i for i, l in enumerate(lines) if l == end_line]
+        if len(end_candidates) > 1:
+            def _end_window(i): return tuple(lines[i:min(len(lines), i+3)])
+            wins = [_end_window(i) for i in end_candidates]
+            end_candidates = [end_candidates[j] for j in range(len(end_candidates)) if wins.count(wins[j]) == 1]
+        end_idx = end_candidates[0]
+
+        new_lines  = lines[:start_idx + 1] + mod["replace"].split('\n') + lines[end_idx:]
+        new_content = '\n'.join(new_lines)
+        report.append(f"  Mod {idx}: ✅ 已替换（定位行模式）")
+
+    target_path.write_text(new_content, encoding=encoding)
+    report.append(f"  ✅ 已保存: {target_path.name}")
+
+    return report
+=====END=====

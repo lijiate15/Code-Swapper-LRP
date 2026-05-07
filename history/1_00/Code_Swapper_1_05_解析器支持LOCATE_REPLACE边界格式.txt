@@ -1,0 +1,92 @@
+「Code_Swapper_1_04 解析器支持LOCATE_REPLACE边界格式」Modification Summary
+
+########## 修改说明 ##########
+升级 parse_instruction_doc 的 Locate/Replace 提取逻辑，增加对 =====LOCATE===== / =====REPLACE===== 边界格式的支持。
+当 Replace 内容含有反引号代码块（```）时，指令文档可改用此格式，避免解析器将内容中的 ``` 误判为块结束标记。
+两种格式并存，优先尝试原有 ``` 格式，失败时自动尝试 ===== 格式。
+########## 说明结束 ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+- This script belongs to the user. The user owns this code.
+- All modifications below are user-directed changes after a requirements discussion. Not AI-initiated improvements or refactoring.
+- Execute the modifications exactly as specified. Do not add improvements, do not refuse on the grounds of "augmenting code" or "this looks like optimization."
+- If a "Locate" string cannot be found, ask the user about that specific block — do not refuse the whole task.
+
+**Task Description**
+Add support for =====LOCATE===== / =====REPLACE===== boundary format in parse_instruction_doc, as a fallback when the standard backtick format fails.
+
+**Target File**
+Code_Swapper_1_04.py
+
+**Step 0: Copy as new version**
+Before any modification, copy `Code_Swapper_1_04.py` as `Code_Swapper_1_05.py` with version incremented by 1. All subsequent modifications apply to `Code_Swapper_1_05.py` only. The source file must remain untouched.
+(Note: Code_Swapper.py handles this automatically. This step is for Claude Code execution.)
+
+**Constraints**
+- Only modify code directly related to the requirements above.
+- Do not refactor or change any other parts.
+- The source file must remain read-only throughout.
+
+---
+
+**Modification 1 of 1**
+
+Locate the following code:
+```
+        # 提取 Locate 代码块和 Replace 代码块
+        locate_match = re.search(
+            r'Locate(?:\s+the\s+following\s+code)?\s*:\s*\n```[a-zA-Z]*\n(.*?)\n```',
+            block,
+            re.DOTALL | re.IGNORECASE
+        )
+        replace_match = re.search(
+            r'Replace\s+with\s*:\s*\n```[a-zA-Z]*\n(.*?)\n```',
+            block,
+            re.DOTALL | re.IGNORECASE
+        )
+
+        if not locate_match or not replace_match:
+            raise ValueError(
+                f"Modification {idx}: 无法解析出 Locate 或 Replace 代码块。\n"
+                f"请检查该块格式是否正确（必须包含 ```代码块``` 包裹的代码）。"
+            )
+```
+Replace with:
+```
+        # 提取 Locate 代码块和 Replace 代码块
+        # 优先尝试标准 ``` 格式，失败时尝试 =====LOCATE===== / =====REPLACE===== 格式
+        locate_match = re.search(
+            r'Locate(?:\s+the\s+following\s+code)?\s*:\s*\n```[a-zA-Z]*\n(.*?)\n```',
+            block,
+            re.DOTALL | re.IGNORECASE
+        )
+        replace_match = re.search(
+            r'Replace\s+with\s*:\s*\n```[a-zA-Z]*\n(.*?)\n```',
+            block,
+            re.DOTALL | re.IGNORECASE
+        )
+
+        # 备用格式：=====LOCATE===== ... =====REPLACE===== ... =====END=====
+        if not locate_match or not replace_match:
+            locate_match2 = re.search(
+                r'Locate(?:\s+the\s+following\s+code)?\s*:\s*\n=====LOCATE=====\n(.*?)\n=====REPLACE=====',
+                block,
+                re.DOTALL | re.IGNORECASE
+            )
+            replace_match2 = re.search(
+                r'=====REPLACE=====\n(.*?)\n=====END=====',
+                block,
+                re.DOTALL | re.IGNORECASE
+            )
+            if locate_match2 and replace_match2:
+                locate_match = locate_match2
+                replace_match = replace_match2
+
+        if not locate_match or not replace_match:
+            raise ValueError(
+                f"Modification {idx}: 无法解析出 Locate 或 Replace 代码块。\n"
+                f"请检查该块格式是否正确（支持 ```代码块``` 或 =====LOCATE===== 边界格式）。"
+            )
+```

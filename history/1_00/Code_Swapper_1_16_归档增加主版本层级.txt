@@ -1,0 +1,77 @@
+「Code_Swapper_1_16 归档增加主版本层级，无版本号文件默认1_00」
+
+########## 修改说明 ##########
+修改1：detect_version_and_next — 将末尾的 raise ValueError 替换为 fallback 逻辑：
+  若文件名无标准版本号后缀，不再报错退出，而是默认当前版本为 1_00，
+  返回新文件名为 <原始stem>_1_01<后缀>。
+
+修改2：archive_files — 在计算 dest_dir 时增加一层主版本子文件夹。
+  从 source_path.name 中提取主版本号（版本号第一段数字，如 1_09 中的 "1"），
+  生成子文件夹名 "<主版本号>_00"（如 "1_00"），
+  归档路径从 ARCHIVE_DIR / base_name 改为 ARCHIVE_DIR / base_name / major_folder。
+  无法识别版本号时（即无版本号文件，已被修改1 fallback 为 1_00），主版本默认为 "1"。
+########## 说明结束 ##########
+
+---
+
+Modification 1 of 2
+
+Locate the following code:
+=====LOCATE=====
+    raise ValueError(
+        f"无法从文件名 '{filename}' 识别版本号。\n"
+        f"支持的格式：xxx_01.py / xxx_v1.py 等（末尾必须是数字）"
+    )
+=====REPLACE=====
+    # 无版本号后缀时，默认当前版本为 1_00，新文件名为 <stem>_1_01<suffix>
+    new_stem = f"{stem}_1_01"
+    return "1_00", new_stem + suffix
+=====END=====
+
+---
+
+Modification 2 of 2
+
+Locate the following code:
+=====LOCATE=====
+def archive_files(source_path: Path, instruction_path: Path) -> list[str]:
+    """
+    将旧版源脚本和指令文档移入「历史版本/<基础名>/」归档文件夹。
+    同名冲突时自动追加 _YYYYMMDD_HHMMSS 后缀。
+    返回归档报告行列表。
+    """
+    report = []
+    base_name = extract_base_name(source_path.name)
+    dest_dir = ARCHIVE_DIR / base_name
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    report.append(f"  归档目录: {dest_dir}")
+=====REPLACE=====
+def archive_files(source_path: Path, instruction_path: Path) -> list[str]:
+    """
+    将旧版源脚本和指令文档移入「历史版本/<基础名>/<主版本号>_00/」归档文件夹。
+    主版本号从文件名版本后缀中提取第一段数字（如 1_09 -> 1_00，2_03 -> 2_00）。
+    无法识别版本号时默认主版本为 1_00。
+    同名冲突时自动追加 _YYYYMMDD_HHMMSS 后缀。
+    返回归档报告行列表。
+    """
+    report = []
+    base_name = extract_base_name(source_path.name)
+
+    # 提取主版本号：从文件名末尾版本段中取第一段数字
+    stem = source_path.stem
+    major = "1"  # 默认值
+    # 匹配末尾形如 _1_09 / _2_03 / _10_02 的版本段，取第一段数字
+    m = re.search(r'_(\d+)_\d+$', stem)
+    if m:
+        major = m.group(1)
+    else:
+        # 尝试匹配单段版本号如 _v3 / _09
+        m2 = re.search(r'[_vV](\d+)$', stem)
+        if m2:
+            major = m2.group(1)
+    major_folder = f"{major}_00"
+
+    dest_dir = ARCHIVE_DIR / base_name / major_folder
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    report.append(f"  归档目录: {dest_dir}")
+=====END=====

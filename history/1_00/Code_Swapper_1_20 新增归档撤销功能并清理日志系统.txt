@@ -1,0 +1,444 @@
+「Code_Swapper_1_20 新增归档撤销功能并清理日志系统」
+
+########## 修改说明 ##########
+1. 删除无效的日志类 StreamToLogger 及 init_log/close_log 函数，并移除相关配置项。
+2. 新增 UNDO_LOG_DIR 配置，用于存储每次操作的 JSON 记录。
+3. 实现 record_undo_log 函数：每次归档成功后生成 undo_{timestamp}.json，记录文件的 source/dest 路径，并保持最多 60 份记录。
+4. 实现 undo_last_operation 函数：读取最新的 JSON 记录，执行反向 shutil.move 并删除该记录。
+5. 修改 main 函数：移除日志初始化调用，并在完成界面增加「2. 撤销上次归档」选项。
+########## 说明结束 ##########
+
+Modification 1 of 9
+
+Locate the following code:
+=====LOCATE=====
+# Work 文件夹和 config.json 路径（脚本同目录下的 Work/ 子文件夹）
+SCRIPT_DIR = Path(__file__).resolve().parent
+WORK_DIR = SCRIPT_DIR / "Work"
+CONFIG_PATH = WORK_DIR / "config.json"
+LOGS_DIR = WORK_DIR / "logs"
+ARCHIVE_DIR = SCRIPT_DIR / "历史版本"  # 归档根目录（脚本平级）
+
+# 日志上限配置
+LOG_MAX_COUNT = 60   # 超过此数量触发清理
+LOG_KEEP_COUNT = 30  # 清理后保留数量
+
+
+# ============================================================
+# 日志初始化
+# ============================================================
+class StreamToLogger:
+    """
+    将 sys.stdout 的写入转发到 logging.info，同时保留原始控制台输出。
+    这样所有 print() 语句无需修改即可同步写入日志文件。
+    按行缓冲，空行不写入日志。
+    """
+    def __init__(self, original_stdout):
+        self._original = original_stdout
+        self._buf = ""
+
+    def write(self, msg):
+        self._original.write(msg)
+        self._buf += msg
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if line:
+                logging.info(line)
+
+    def flush(self):
+        self._original.flush()
+
+    def isatty(self):
+        return self._original.isatty()
+
+
+def close_log() -> None:
+    """
+    关闭日志 FileHandler 并还原 sys.stdout 为原始控制台对象。
+    在每次修改流程结束后调用，使日志生命周期严格限定在一次修改流程内。
+    多次调用安全（已还原则跳过）。
+    """
+    # 还原 sys.stdout
+    if isinstance(sys.stdout, StreamToLogger):
+        sys.stdout = sys.stdout._original
+
+    # 关闭并移除所有 FileHandler
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        if isinstance(handler, logging.FileHandler):
+            handler.flush()
+            handler.close()
+            root_logger.removeHandler(handler)
+
+    # 重置 logging 配置，使下次 init_log() 可以重新 basicConfig
+    root_logger.setLevel(logging.WARNING)
+
+
+def init_log() -> None:
+    """
+    在 Work/logs/ 下创建本次运行的日志文件（按时间戳命名）。
+    仅在选项 2 / 3 / 命令行模式下调用，选项 1 不调用。
+    调用后将 sys.stdout 替换为 StreamToLogger，使所有 print() 自动写入日志。
+    超过 LOG_MAX_COUNT 份时，删除最旧的直到剩 LOG_KEEP_COUNT 份。
+    """
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 日志轮转：超过上限则删除最旧的
+    existing = sorted(LOGS_DIR.glob("run_*.log"))
+    if len(existing) >= LOG_MAX_COUNT:
+        to_delete = existing[:len(existing) - LOG_KEEP_COUNT + 1]
+        for f in to_delete:
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
+    # 创建本次日志文件
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = LOGS_DIR / f"run_{timestamp}.log"
+
+    # 配置 logging：只写文件，控制台由 StreamToLogger 负责
+    log_format = "%(asctime)s %(message)s"
+    date_format = "%H:%M:%S"
+    logging.basicConfig(
+        level=logging.INFO,
+        format=log_format,
+        datefmt=date_format,
+        handlers=[
+            logging.FileHandler(log_path, encoding="utf-8"),
+        ],
+    )
+
+    # 替换 sys.stdout，使所有 print() 自动同步写入日志
+    sys.stdout = StreamToLogger(sys.stdout)
+
+    logging.info(f"=== 日志文件: {log_path} ===")
+=====REPLACE=====
+# Work 文件夹和 config.json 路径（脚本同目录下的 Work/ 子文件夹）
+SCRIPT_DIR = Path(__file__).resolve().parent
+WORK_DIR = SCRIPT_DIR / "Work"
+CONFIG_PATH = WORK_DIR / "config.json"
+UNDO_LOG_DIR = WORK_DIR / "undo_logs"
+ARCHIVE_DIR = SCRIPT_DIR / "历史版本"  # 归档根目录（脚本平级）
+
+# 撤销记录上限
+UNDO_MAX_COUNT = 60
+=====END=====
+
+Modification 2 of 9
+
+Locate the following code:
+=====LOCATE=====
+def archive_files(source_path: Path, instruction_path: Path) -> list[str]:
+    """
+    将旧版源脚本和指令文档移入「源文件目录/历史版本/<基础名>/<主版本号>_00/」归档文件夹。
+    主版本号从文件名版本后缀中提取第一段数字（如 1_09 -> 1_00，2_03 -> 2_00）。
+    无法识别版本号时默认主版本为 1_00。
+    同名冲突时自动追加 _YYYYMMDD_HHMMSS 后缀。
+    返回归档报告行列表。
+    """
+    report = []
+    base_name = extract_base_name(source_path.name)
+
+    # 提取主版本号：从文件名末尾版本段中取第一段数字
+    stem = source_path.stem
+    major = "1"  # 默认值
+    # 匹配末尾形如 _1_09 / _2_03 / _10_02 的版本段，取第一段数字
+    m = re.search(r'_(\d+)_\d+$', stem)
+    if m:
+        major = m.group(1)
+    else:
+        # 尝试匹配单段版本号如 _v3 / _09
+        m2 = re.search(r'[_vV](\d+)$', stem)
+        if m2:
+            major = m2.group(1)
+    major_folder = f"{major}_00"
+
+    # 修改点：归档根目录改为源文件所在目录下的“历史版本”
+    local_archive_dir = source_path.parent / "历史版本"
+    dest_dir = local_archive_dir / base_name / major_folder
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    report.append(f"  归档目录: {dest_dir}")
+
+    for file_path in (source_path, instruction_path):
+        dest = dest_dir / file_path.name
+        if dest.exists():
+            # 同名冲突：用文件修改时间作后缀
+            mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+            suffix_ts = mtime.strftime("%Y%m%d_%H%M%S")
+            new_name = f"{file_path.stem}_{suffix_ts}{file_path.suffix}"
+            dest = dest_dir / new_name
+            report.append(f"  ⚠️  同名冲突，重命名为: {new_name}")
+        shutil.move(str(file_path), str(dest))
+        report.append(f"  ✅ 已归档: {file_path.name} -> {dest.name}")
+
+    return report
+=====REPLACE=====
+def record_undo_log(moves: list[dict]) -> None:
+    """
+    记录本次移动操作到 JSON 文件，并清理旧记录。
+    moves: [{'source': str, 'dest': str}, ...]
+    """
+    try:
+        UNDO_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # 清理旧记录
+        logs = sorted(UNDO_LOG_DIR.glob("undo_*.json"))
+        if len(logs) >= UNDO_MAX_COUNT:
+            for f in logs[:len(logs) - UNDO_MAX_COUNT + 1]:
+                f.unlink()
+        
+        # 写入新记录
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = UNDO_LOG_DIR / f"undo_{ts}.json"
+        log_path.write_text(json.dumps(moves, ensure_ascii=False, indent=2), encoding='utf-8')
+    except Exception as e:
+        print(f"  ⚠️  无法创建撤销日志: {e}")
+
+
+def archive_files(source_path: Path, instruction_path: Path) -> list[str]:
+    """
+    归档文件并记录移动路径供撤销使用。
+    """
+    report = []
+    base_name = extract_base_name(source_path.name)
+    stem = source_path.stem
+    major = "1"
+    m = re.search(r'_(\d+)_\d+$', stem)
+    if m: major = m.group(1)
+    else:
+        m2 = re.search(r'[_vV](\d+)$', stem)
+        if m2: major = m2.group(1)
+    
+    major_folder = f"{major}_00"
+    local_archive_dir = source_path.parent / "历史版本"
+    dest_dir = local_archive_dir / base_name / major_folder
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    report.append(f"  归档目录: {dest_dir}")
+
+    move_records = []
+    for file_path in (source_path, instruction_path):
+        dest = dest_dir / file_path.name
+        if dest.exists():
+            mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+            suffix_ts = mtime.strftime("%Y%m%d_%H%M%S")
+            new_name = f"{file_path.stem}_{suffix_ts}{file_path.suffix}"
+            dest = dest_dir / new_name
+            report.append(f"  ⚠️  同名冲突，重命名为: {new_name}")
+        
+        source_str = str(file_path.absolute())
+        dest_str = str(dest.absolute())
+        shutil.move(source_str, dest_str)
+        move_records.append({'source': source_str, 'dest': dest_str})
+        report.append(f"  ✅ 已归档: {file_path.name} -> {dest.name}")
+
+    record_undo_log(move_records)
+    return report
+
+
+def undo_last_operation() -> None:
+    """读取最新的撤销日志并执行反向移动。"""
+    if not UNDO_LOG_DIR.exists():
+        print("❌ 未发现撤销日志目录。")
+        return
+
+    logs = sorted(UNDO_LOG_DIR.glob("undo_*.json"))
+    if not logs:
+        print("❌ 没有可撤销的操作记录。")
+        return
+
+    latest_log = logs[-1]
+    try:
+        moves = json.loads(latest_log.read_text(encoding='utf-8'))
+        print(f"\n正在撤销操作 (记录: {latest_log.name})...")
+        for move in moves:
+            src, dst = move['source'], move['dest']
+            if Path(dst).exists():
+                shutil.move(dst, src)
+                print(f"  回退: {Path(dst).name} -> {Path(src).parent}")
+            else:
+                print(f"  ⚠️  找不到归档文件，跳过: {dst}")
+        latest_log.unlink()
+        print("✅ 撤销完成。")
+    except Exception as e:
+        print(f"❌ 撤销失败: {e}")
+=====END=====
+
+Modification 3 of 9
+
+Locate the following code:
+=====LOCATE=====
+        if choice == '3':
+            init_log()
+            source_path, instruction_path = run_prompt_modification()
+        else:
+            init_log()
+            print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+            source_path, instruction_path = select_files_via_dialog()
+=====REPLACE=====
+        if choice == '3':
+            source_path, instruction_path = run_prompt_modification()
+        else:
+            print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+            source_path, instruction_path = select_files_via_dialog()
+=====END=====
+
+Modification 4 of 9
+
+Locate the following code:
+=====LOCATE=====
+            print(f"\n请选择：")
+            print(f"  1. 继续代码修改（回车默认）")
+            print(f"  2. 退出")
+            c2 = input("请输入选项 (1/2，回车默认1): ").strip()
+            if c2 == '2':
+                close_log()
+                sys.exit(0)
+            else:
+                close_log()
+                main()
+                return
+        close_log()
+        sys.exit(2)
+=====REPLACE=====
+            print(f"\n请选择：")
+            print(f"  1. 继续代码修改（回车默认）")
+            print(f"  2. 退出")
+            c2 = input("请输入选项 (1/2，回车默认1): ").strip()
+            if c2 == '2':
+                sys.exit(0)
+            else:
+                main()
+                return
+        sys.exit(2)
+=====END=====
+
+Modification 5 of 9
+
+Locate the following code:
+=====LOCATE=====
+    ans = input("\n是否继续？(y/N): ").strip().lower()
+    if ans != 'y':
+        print("已取消，源文件未被修改，新文件未生成。")
+        close_log()
+        sys.exit(0)
+=====REPLACE=====
+    ans = input("\n是否继续？(y/N): ").strip().lower()
+    if ans != 'y':
+        print("已取消，源文件未被修改，新文件未生成。")
+        sys.exit(0)
+=====END=====
+
+Modification 6 of 9
+
+Locate the following code:
+=====LOCATE=====
+    except Exception as e:
+        # 出现意外错误，删除已生成的新文件，避免半成品
+        if target_path.exists():
+            target_path.unlink()
+            print(f"  ⚠️  已删除半成品文件: {target_path.name}")
+        print(f"\n❌ 执行过程出错: {e}")
+        close_log()
+        input("\n按回车键退出...")
+        sys.exit(3)
+=====REPLACE=====
+    except Exception as e:
+        # 出现意外错误，删除已生成的新文件，避免半成品
+        if target_path.exists():
+            target_path.unlink()
+            print(f"  ⚠️  已删除半成品文件: {target_path.name}")
+        print(f"\n❌ 执行过程出错: {e}")
+        input("\n按回车键退出...")
+        sys.exit(3)
+=====END=====
+
+Modification 7 of 9
+
+Locate the following code:
+=====LOCATE=====
+    # ---------- 完成 ----------
+    print("\n" + "=" * 60)
+    print("✅ 全部完成")
+    print("=" * 60)
+    print(f"新脚本   : {target_path}")
+    print(f"\n请手动测试新脚本，确认行为正确后再投入使用。")
+
+    # 修改成功后询问是否继续
+    if len(sys.argv) == 1:
+        print("\n请选择：")
+        print("  1. 继续代码修改（回车默认）")
+        print("  2. 退出")
+        c = input("请输入选项 (1/2，回车默认1): ").strip()
+        if c == '2':
+            input("\n按回车键退出...")
+            sys.exit(0)
+        else:
+            main()
+=====REPLACE=====
+    # ---------- 完成 ----------
+    print("\n" + "=" * 60)
+    print("✅ 全部完成")
+    print("=" * 60)
+    print(f"新脚本   : {target_path}")
+    print(f"\n请手动测试新脚本，确认行为正确后再投入使用。")
+
+    # 修改成功后询问是否继续
+    if len(sys.argv) == 1:
+        while True:
+            print("\n请选择：")
+            print("  1. 继续代码修改（回车默认）")
+            print("  2. 撤销上次归档")
+            print("  3. 退出")
+            c = input("请输入选项 (1/2/3，回车默认1): ").strip()
+            if c in ('', '1'):
+                main()
+                break
+            elif c == '2':
+                undo_last_operation()
+                continue
+            elif c == '3':
+                input("\n按回车键退出...")
+                sys.exit(0)
+            else:
+                print("无效输入。")
+=====END=====
+
+Modification 8 of 9
+
+Locate the following code:
+=====LOCATE=====
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        logging.exception(f"❌ 未处理的异常: {e}")
+        input("\n按回车键退出...")
+        sys.exit(99)
+=====REPLACE=====
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        print(f"❌ 未处理的异常: {e}")
+        input("\n按回车键退出...")
+        sys.exit(99)
+=====END=====
+
+Modification 9 of 9
+
+Locate the following code:
+=====LOCATE=====
+import sys
+import re
+import shutil
+import json
+import logging
+import tkinter as tk
+=====REPLACE=====
+import sys
+import re
+import shutil
+import json
+import tkinter as tk
+=====END=====

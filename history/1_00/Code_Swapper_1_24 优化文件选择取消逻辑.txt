@@ -1,0 +1,114 @@
+「Code_Swapper_1_24 修复文件选择取消后的逻辑循环」
+
+########## 修改说明 ##########
+1. 修改 select_files_via_dialog：当用户取消选择时返回 (None, None) 而非退出[cite: 1]。
+2. 修改 main：将文件选择逻辑及其后的 None 检查移入 while True 菜单循环内部，确保取消操作能正确触发 continue 回到主菜单，避免 SyntaxError[cite: 1]。
+########## 说明结束 ##########
+
+Modification 1 of 2
+
+Locate the following code:
+=====LOCATE=====
+    if not source_str:
+        print("❌ 未选择源文件，已取消。")
+        sys.exit(0)
+
+    source_path = Path(source_str).resolve()
+    print(f"  ✅ 已选择源文件: {source_path}")
+
+    # ── 弹窗 2：选择指令文档 ────────────────────────────────
+    last_instruction_dir = config.get("last_instruction_dir", "")
+    init_dir_instruction = (
+        last_instruction_dir
+        if last_instruction_dir and Path(last_instruction_dir).is_dir()
+        else str(source_path.parent)
+    )
+
+    print_dialog_banner(
+        title="选择指令文档",
+        what="选择由 Claude 生成的修改指令文档（.txt）",
+        usage="脚本将解析文档中的 Locate/Replace 块，在新文件上执行查找替换",
+    )
+
+    root = tk.Tk()
+    root.withdraw()
+    instruction_str = filedialog.askopenfilename(
+        title="选择指令文档（.txt）",
+        initialdir=init_dir_instruction,
+        filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")],
+    )
+    root.destroy()
+
+    if not instruction_str:
+        print("❌ 未选择指令文档，已取消。")
+        sys.exit(0)
+=====REPLACE=====
+    if not source_str:
+        print("\n⚠️ 未选择源文件，操作已取消。")
+        return None, None
+
+    source_path = Path(source_str).resolve()
+    print(f"  ✅ 已选择源文件: {source_path}")
+
+    # ── 弹窗 2：选择指令文档 ────────────────────────────────
+    last_instruction_dir = config.get("last_instruction_dir", "")
+    init_dir_instruction = (
+        last_instruction_dir
+        if last_instruction_dir and Path(last_instruction_dir).is_dir()
+        else str(source_path.parent)
+    )
+
+    print_dialog_banner(
+        title="选择指令文档",
+        what="选择由 Claude 生成的修改指令文档（.txt）",
+        usage="脚本将解析文档中的 Locate/Replace 块，在新文件上执行查找替换",
+    )
+
+    root = tk.Tk()
+    root.withdraw()
+    instruction_str = filedialog.askopenfilename(
+        title="选择指令文档（.txt）",
+        initialdir=init_dir_instruction,
+        filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")],
+    )
+    root.destroy()
+
+    if not instruction_str:
+        print("\n⚠️ 未选择指令文档，操作已取消。")
+        return None, None
+=====END=====
+
+Modification 2 of 2
+
+Locate the following code:
+=====LOCATE=====
+            if choice in ('1', '3'):
+                break
+            else:
+                print("无效输入，请输入 1、2 或 3")
+                continue
+        
+        if choice == '3':
+            source_path, instruction_path = run_prompt_modification()
+        else:
+            print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+            source_path, instruction_path = select_files_via_dialog()
+
+    else:
+=====REPLACE=====
+            if choice in ('1', '3'):
+                if choice == '3':
+                    source_path, instruction_path = run_prompt_modification()
+                else:
+                    print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+                    source_path, instruction_path = select_files_via_dialog()
+                
+                if source_path is None:
+                    continue
+                break
+            else:
+                print("无效输入，请输入 1、2 或 3")
+                continue
+
+    else:
+=====END=====

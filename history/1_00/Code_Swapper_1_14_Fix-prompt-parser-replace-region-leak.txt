@@ -1,0 +1,107 @@
+「Code_Swapper_1_14 Fix-prompt-parser-replace-region-leak」Modification Summary
+
+########## change-log ##########
+修复 parse_prompt_instruction_doc 解析中间锚行时把替换区示例文本误识别的 bug。
+
+背景：
+  1.13 跑 1.10→1.11 指令时，Mod 13 报「3 行组合仍不唯一」失败。
+  根因不是定位算法，而是解析器把 Mod 13 替换内容（=====REPLACE===== 块内）
+  里的示例文本「Start line +1: [second anchor line — ...]」「Start line +2:
+  [third anchor line — ...]」也当作真正的中间锚行解析进 middle_lines。
+  结果 middle_lines 包含了真锚行 + 示例文本一共 4 条，过滤候选时
+  自然没有任何位置能全部匹配，candidates 被清空到 0，触发
+  「3行组合仍不唯一」分支。
+
+修复思路：
+  把 block 切成两段：
+    header = Replace with: 之前的部分（指令声明区）
+    rest   = 之后的部分（替换内容区，不应被解析）
+  start_line / end_line / middle_lines 的 re 全部改在 header 上跑。
+  这样替换内容里就算出现 Start line: / Start line +N: / End line: 等
+  示例文本，也不会污染解析结果。
+
+为什么三个 search 一起改：
+  当前 start_line_match、end_line_match、middle_line_matches 都在整个 block
+  上跑。Mod 13 只是 middle_lines 中招，但根因是「全 block 搜索」这个设计。
+  对称修一次彻底，避免未来 Replace 区出现 "Start line: ..." 字面值时
+  start_line 也被污染。
+
+具体改动（一处 LOCATE/REPLACE 块）：
+  在三个 re 调用之前增加切片：
+    replace_marker_pos = block.lower().find('replace with')
+    header = block[:replace_marker_pos] if replace_marker_pos != -1 else block
+  然后把三个 re 的搜索范围从 block 改成 header。
+  replace_match 仍然在整个 block 上跑（它本来就要跨越 Replace with:
+  这个标记）。
+########## end-of-change-log ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+Source file: Code_Swapper_1_13.py
+Target file: Code_Swapper_1_14.py
+One LOCATE/REPLACE modification in parse_prompt_instruction_doc.
+
+---
+
+**Modification 1 of 1**
+
+Locate the following code:
+=====LOCATE=====
+        # 解析首定位行（注意：用 [ \t]? 保留行内前导缩进）
+        start_line_match = re.search(r'^Start line:[ \t]?(.*)$', block, re.IGNORECASE | re.MULTILINE)
+        end_line_match   = re.search(r'^End line:[ \t]?(.*)$',   block, re.IGNORECASE | re.MULTILINE)
+
+        if not start_line_match or not end_line_match:
+            raise ValueError(
+                f"Modification {idx}: 未找到 Start line 或 End line。\n"
+                f"提示词修改模式仅支持 boundary 格式：\n"
+                f"  Start line: [首定位行完整内容]\n"
+                f"  End line: [尾定位行完整内容]\n"
+                f"  Replace with:\n"
+                f"  =====REPLACE=====\n"
+                f"  [新内容]\n"
+                f"  =====END====="
+            )
+
+        # 解析中间锚行（可选）
+        middle_line_matches = re.findall(
+            r'^Start line\s*\+\s*(\d+):[ \t]?(.*)$',
+            block,
+            re.IGNORECASE | re.MULTILINE
+        )
+        middle_lines = [
+            text for _, text in sorted(middle_line_matches, key=lambda p: int(p[0]))
+        ]
+=====REPLACE=====
+        # 切出 header（Replace with: 之前的部分），避免替换内容里的
+        # 示例文本（如 "Start line +1: [...]"）被误识别为真锚行
+        replace_marker_pos = block.lower().find('replace with')
+        header = block[:replace_marker_pos] if replace_marker_pos != -1 else block
+
+        # 解析首定位行（注意：用 [ \t]? 保留行内前导缩进）
+        start_line_match = re.search(r'^Start line:[ \t]?(.*)$', header, re.IGNORECASE | re.MULTILINE)
+        end_line_match   = re.search(r'^End line:[ \t]?(.*)$',   header, re.IGNORECASE | re.MULTILINE)
+
+        if not start_line_match or not end_line_match:
+            raise ValueError(
+                f"Modification {idx}: 未找到 Start line 或 End line。\n"
+                f"提示词修改模式仅支持 boundary 格式：\n"
+                f"  Start line: [首定位行完整内容]\n"
+                f"  End line: [尾定位行完整内容]\n"
+                f"  Replace with:\n"
+                f"  =====REPLACE=====\n"
+                f"  [新内容]\n"
+                f"  =====END====="
+            )
+
+        # 解析中间锚行（可选，仅在 header 区匹配）
+        middle_line_matches = re.findall(
+            r'^Start line\s*\+\s*(\d+):[ \t]?(.*)$',
+            header,
+            re.IGNORECASE | re.MULTILINE
+        )
+        middle_lines = [
+            text for _, text in sorted(middle_line_matches, key=lambda p: int(p[0]))
+        ]
+=====END=====

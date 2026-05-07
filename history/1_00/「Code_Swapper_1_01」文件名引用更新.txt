@@ -1,0 +1,32 @@
+Modification 1 of 3
+
+Locate the following code:
+```
+脚本修改自动执行器 (apply_changes.py)
+```
+Replace with:
+```
+脚本修改自动执行器 (Code_Swapper_1_00.py)
+```
+
+Modification 2 of 3
+
+Locate the following code:
+```
+  或命令行：python apply_changes.py <源脚本路径> <指令文档路径>
+```
+Replace with:
+```
+  或命令行：python Code_Swapper_1_00.py <源脚本路径> <指令文档路径>
+```
+
+Modification 3 of 3
+
+Locate the following code:
+```
+        filetypes=[("Markdown 文档", "*.md"), ("文本文件", "*.txt"), ("所有文件", "*.*")],
+```
+Replace with:
+```
+        filetypes=[("文本文件", "*.txt"), ("Markdown 文档", "*.md"), ("所有文件", "*.*")],
+```

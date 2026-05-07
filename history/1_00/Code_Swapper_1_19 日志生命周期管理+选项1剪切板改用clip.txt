@@ -1,0 +1,157 @@
+「Code_Swapper_1_19 日志生命周期管理+选项1剪切板改用clip」
+
+########## 修改说明 ##########
+1. 新增 close_log()：关闭所有 FileHandler 并还原 sys.stdout，使日志严格限定在一次修改流程内。
+2. 选项1的剪切板操作改用 subprocess 调用 Windows clip 命令，完全绕开 tkinter，
+   彻底解决 root.destroy() 污染 Tk 状态导致后续弹窗卡住的问题。
+3. 在所有退出点（正常完成退出、用户取消、预检查失败退出、执行出错）插入 close_log()，
+   确保每次流程结束后日志资源都被释放。
+########## 说明结束 ##########
+
+---
+
+Modification 1 of 4
+
+Locate the following code:
+=====LOCATE=====
+def init_log() -> None:
+=====REPLACE=====
+def close_log() -> None:
+    """
+    关闭日志 FileHandler 并还原 sys.stdout 为原始控制台对象。
+    在每次修改流程结束后调用，使日志生命周期严格限定在一次修改流程内。
+    多次调用安全（已还原则跳过）。
+    """
+    # 还原 sys.stdout
+    if isinstance(sys.stdout, StreamToLogger):
+        sys.stdout = sys.stdout._original
+
+    # 关闭并移除所有 FileHandler
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        if isinstance(handler, logging.FileHandler):
+            handler.flush()
+            handler.close()
+            root_logger.removeHandler(handler)
+
+    # 重置 logging 配置，使下次 init_log() 可以重新 basicConfig
+    root_logger.setLevel(logging.WARNING)
+
+
+def init_log() -> None:
+=====END=====
+
+---
+
+Modification 2 of 4
+
+Locate the following code:
+=====LOCATE=====
+                # 复制提示词到系统剪切板（tkinter 原生，无需第三方库）
+                try:
+                    root = tk.Tk()
+                    root.withdraw()
+                    root.clipboard_clear()
+                    root.clipboard_append(PROMPT_TEXT.strip())
+                    root.update()
+                    root.destroy()
+                    print("已复制提示词到剪切板。")
+                except Exception as e:
+                    print(f"⚠️ 复制到剪切板失败: {e}")
+=====REPLACE=====
+                # 复制提示词到系统剪切板（Windows clip 命令，不依赖 tkinter）
+                try:
+                    import subprocess
+                    proc = subprocess.Popen(
+                        ['clip'],
+                        stdin=subprocess.PIPE,
+                        shell=True,
+                    )
+                    proc.communicate(input=PROMPT_TEXT.strip().encode('utf-16-le'))
+                    print("已复制提示词到剪切板。")
+                except Exception as e:
+                    print(f"⚠️ 复制到剪切板失败: {e}")
+=====END=====
+
+---
+
+Modification 3 of 4
+
+Locate the following code:
+=====LOCATE=====
+            if c2 == '2':
+                sys.exit(0)
+            else:
+                main()
+                return
+        sys.exit(2)
+=====REPLACE=====
+            if c2 == '2':
+                close_log()
+                sys.exit(0)
+            else:
+                close_log()
+                main()
+                return
+        close_log()
+        sys.exit(2)
+=====END=====
+
+---
+
+Modification 4 of 4
+
+Locate the following code:
+=====LOCATE=====
+    if ans != 'y':
+        print("已取消，源文件未被修改，新文件未生成。")
+        sys.exit(0)
+
+    # ---------- 阶段 3：执行 ----------
+    print("\n" + "─" * 60)
+    print("【阶段 3】执行替换")
+    print("─" * 60)
+    try:
+        exec_report = (
+            execute_prompt_replacements(source_path, target_path, modifications, source_encoding)
+            if use_prompt_mode else
+            execute_replacements(source_path, target_path, modifications, source_encoding)
+        )
+        for line in exec_report:
+            print(line)
+    except Exception as e:
+        # 出现意外错误，删除已生成的新文件，避免半成品
+        if target_path.exists():
+            target_path.unlink()
+            print(f"  ⚠️  已删除半成品文件: {target_path.name}")
+        print(f"\n❌ 执行过程出错: {e}")
+        input("\n按回车键退出...")
+        sys.exit(3)
+=====REPLACE=====
+    if ans != 'y':
+        print("已取消，源文件未被修改，新文件未生成。")
+        close_log()
+        sys.exit(0)
+
+    # ---------- 阶段 3：执行 ----------
+    print("\n" + "─" * 60)
+    print("【阶段 3】执行替换")
+    print("─" * 60)
+    try:
+        exec_report = (
+            execute_prompt_replacements(source_path, target_path, modifications, source_encoding)
+            if use_prompt_mode else
+            execute_replacements(source_path, target_path, modifications, source_encoding)
+        )
+        for line in exec_report:
+            print(line)
+    except Exception as e:
+        # 出现意外错误，删除已生成的新文件，避免半成品
+        if target_path.exists():
+            target_path.unlink()
+            print(f"  ⚠️  已删除半成品文件: {target_path.name}")
+        print(f"\n❌ 执行过程出错: {e}")
+        close_log()
+        input("\n按回车键退出...")
+        sys.exit(3)
+=====END=====

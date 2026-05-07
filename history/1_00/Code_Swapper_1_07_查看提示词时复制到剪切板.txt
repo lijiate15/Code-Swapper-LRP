@@ -1,0 +1,49 @@
+「Code_Swapper_1_06 查看提示词时复制到剪切板」Modification Summary
+
+########## 修改说明 ##########
+在"查看使用提示词"功能中增加：
+1. 将提示词内容复制到系统剪切板（使用 tkinter 原生实现，无需第三方库）
+2. 在分隔线下方输出"已复制提示词到剪切板。"提示
+
+修复说明（相对于旧指令文档）：
+- 删除了引入未定义变量 extra_text 的代码（原文件无此变量，会导致 NameError）
+- 删除了无意义的 Modification 2（Locate 与 Replace 内容完全相同）
+- 剪切板操作改为 update()+destroy() 直接模式，避免 mainloop() 导致内容被清空
+########## 说明结束 ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+File: Code_Swapper_1_06.py
+Encoding: UTF-8
+Only modify the prompt display block inside the `choice == '1'` branch.
+
+---
+
+**Modification 1 of 1**
+
+Locate the following code:
+```
+                print("\n" + "=" * 60)
+                print(PROMPT_TEXT.strip())
+                print("=" * 60)
+                print("\n请选择：")
+```
+Replace with:
+```
+                print("\n" + "=" * 60)
+                print(PROMPT_TEXT.strip())
+                print("=" * 60)
+                # 复制提示词到系统剪切板（tkinter 原生，无需第三方库）
+                try:
+                    root = tk.Tk()
+                    root.withdraw()
+                    root.clipboard_clear()
+                    root.clipboard_append(PROMPT_TEXT.strip())
+                    root.update()
+                    root.destroy()
+                    print("已复制提示词到剪切板。")
+                except Exception as e:
+                    print(f"⚠️ 复制到剪切板失败: {e}")
+                print("\n请选择：")
+```

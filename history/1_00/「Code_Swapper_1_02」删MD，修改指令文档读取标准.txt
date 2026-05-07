@@ -1,0 +1,41 @@
+Modification 1 of 2
+
+Locate the following code:
+```
+    # ---------- 归档指令文档 ----------
+    changelog_path = target_path.parent / (target_path.stem + "_changelog.md")
+    try:
+        shutil.copy2(instruction_path, changelog_path)
+        print(f"  ✅ 已归档指令文档: {changelog_path.name}")
+    except Exception as e:
+        print(f"  ⚠️  指令文档归档失败（不影响主流程）: {e}")
+
+    # ---------- 完成 ----------
+```
+Replace with:
+```
+    # ---------- 完成 ----------
+```
+
+Modification 2 of 2
+
+Locate the following code:
+```
+    results = []
+
+    # 用 "Modification X of N" 作为分隔锚点切分
+```
+Replace with:
+```
+    # 去除说明块（########## 修改说明 ########## 到 ########## 说明结束 ##########）
+    content = re.sub(
+        r'#{5,}[^\n]*修改说明[^\n]*#{5,}.*?#{5,}[^\n]*说明结束[^\n]*#{5,}',
+        '',
+        content,
+        flags=re.DOTALL
+    )
+
+    results = []
+
+    # 用 "Modification X of N" 作为分隔锚点切分
+```

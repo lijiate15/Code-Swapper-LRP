@@ -1,0 +1,256 @@
+「Code_Swapper_1_12 END转义与提示词修改入口」Modification Summary
+
+########## 修改说明 ##########
+两项改动：
+1. 转义处理：Replace 内容中的 =====END_INNER===== 在执行后自动还原为 =====END=====，
+   解决 Replace 块内容含有 =====END===== 字面文字时解析器提前截断的问题。
+   同理新增 =====REPLACE_INNER===== 和 =====LOCATE_INNER===== 的转义支持，彻底防止嵌套冲突。
+2. 菜单新增选项3「修改提示词」：弹窗源文件默认筛选 .txt，指令文档默认筛选 .txt，
+   提示语区分「提示词文件」和「代码脚本」，流程复用现有主流程，
+   config.json 新增 last_prompt_dir 记忆提示词目录。
+########## 说明结束 ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+Single-file Python script Code_Swapper_1_11.py.
+Mod 1: add escape token substitution after replace content is extracted.
+Mod 2: add select_prompt_files_via_dialog() for .txt source selection.
+Mod 3: expand menu to 3 options and wire up the new dialog.
+Mod 4: add last_prompt_dir config key save after prompt file selection.
+
+---
+
+**Modification 1 of 4**
+
+Locate the following code:
+=====LOCATE=====
+            results.append({
+                "index": idx,
+                "skip": False,
+                "mode": "boundary",
+                "locate": "",
+                "replace": replace_match.group(1).replace('\r\n', '\n').replace('\r', '\n'),
+=====REPLACE=====
+            # Unescape inner fence tokens back to real fence tokens
+            _replace_raw = replace_match.group(1).replace('\r\n', '\n').replace('\r', '\n')
+            _replace_raw = _replace_raw.replace('=====LOCATE_INNER=====', '=====LOCATE=====')
+            _replace_raw = _replace_raw.replace('=====REPLACE_INNER=====', '=====REPLACE=====')
+            _replace_raw = _replace_raw.replace('=====END_INNER=====', '=====END=====')
+            results.append({
+                "index": idx,
+                "skip": False,
+                "mode": "boundary",
+                "locate": "",
+                "replace": _replace_raw,
+=====END=====
+
+---
+
+**Modification 2 of 4**
+
+Locate the following code:
+=====LOCATE=====
+            results.append({
+                "index": idx,
+                "skip": False,
+                "mode": "locate",
+                "locate": locate_match.group(1).replace('\r\n', '\n').replace('\r', '\n'),
+                "replace": replace_match.group(1).replace('\r\n', '\n').replace('\r', '\n'),
+=====REPLACE=====
+            # Unescape inner fence tokens back to real fence tokens
+            _locate_raw = locate_match.group(1).replace('\r\n', '\n').replace('\r', '\n')
+            _locate_raw = _locate_raw.replace('=====LOCATE_INNER=====', '=====LOCATE=====')
+            _locate_raw = _locate_raw.replace('=====REPLACE_INNER=====', '=====REPLACE=====')
+            _locate_raw = _locate_raw.replace('=====END_INNER=====', '=====END=====')
+            _replace_raw2 = replace_match.group(1).replace('\r\n', '\n').replace('\r', '\n')
+            _replace_raw2 = _replace_raw2.replace('=====LOCATE_INNER=====', '=====LOCATE=====')
+            _replace_raw2 = _replace_raw2.replace('=====REPLACE_INNER=====', '=====REPLACE=====')
+            _replace_raw2 = _replace_raw2.replace('=====END_INNER=====', '=====END=====')
+            results.append({
+                "index": idx,
+                "skip": False,
+                "mode": "locate",
+                "locate": _locate_raw,
+                "replace": _replace_raw2,
+=====END=====
+
+---
+
+**Modification 3 of 4**
+
+Locate the following code:
+=====LOCATE=====
+def select_files_via_dialog() -> tuple[Path, Path]:
+    """
+    弹窗模式：依次弹窗选择源脚本和指令文档。
+    返回 (source_path, instruction_path)。
+    取消或关闭弹窗时退出程序。
+    """
+=====REPLACE=====
+def select_files_via_dialog(prompt_mode: bool = False) -> tuple[Path, Path]:
+    """
+    弹窗模式：依次弹窗选择源文件和指令文档。
+    prompt_mode=True 时，源文件筛选 .txt（提示词模式）；否则筛选 .py（代码模式）。
+    返回 (source_path, instruction_path)。
+    取消或关闭弹窗时退出程序。
+    """
+=====END=====
+
+---
+
+**Modification 4 of 4**
+
+Locate the following code:
+=====LOCATE=====
+    # ── 弹窗 1：选择源脚本 ──────────────────────────────────
+    last_script_dir = config.get("last_script_dir", "")
+    init_dir_script = last_script_dir if last_script_dir and Path(last_script_dir).is_dir() else str(Path.home())
+
+    print_dialog_banner(
+        title="选择源脚本",
+        what="选择你想要修改的 Python 脚本文件（.py）",
+        usage="脚本将被复制为版本号 +1 的新文件，所有替换在新文件上执行，源文件保持不变",
+    )
+
+    root = tk.Tk()
+    root.withdraw()
+    source_str = filedialog.askopenfilename(
+        title="选择源脚本（.py）",
+        initialdir=init_dir_script,
+        filetypes=[("Python 脚本", "*.py"), ("所有文件", "*.*")],
+    )
+    root.destroy()
+
+    if not source_str:
+        print("❌ 未选择源脚本，已取消。")
+        sys.exit(0)
+
+    source_path = Path(source_str).resolve()
+    print(f"  ✅ 已选择源脚本: {source_path}")
+
+    # ── 弹窗 2：选择指令文档 ────────────────────────────────
+    last_instruction_dir = config.get("last_instruction_dir", "")
+    # 默认从源脚本所在目录开始，方便指令文档就放在旁边
+    init_dir_instruction = (
+        last_instruction_dir
+        if last_instruction_dir and Path(last_instruction_dir).is_dir()
+        else str(source_path.parent)
+    )
+
+    print_dialog_banner(
+        title="选择指令文档",
+        what="选择由 Claude 生成的 Path 2 修改指令文档（.md）",
+        usage="脚本将解析文档中的 Locate/Replace 块，在新脚本上执行查找替换",
+    )
+
+    root = tk.Tk()
+    root.withdraw()
+    instruction_str = filedialog.askopenfilename(
+        title="选择指令文档（.md）",
+        initialdir=init_dir_instruction,
+        filetypes=[("文本文件", "*.txt"), ("Markdown 文档", "*.md"), ("所有文件", "*.*")],
+    )
+    root.destroy()
+
+    if not instruction_str:
+        print("❌ 未选择指令文档，已取消。")
+        sys.exit(0)
+
+    instruction_path = Path(instruction_str).resolve()
+    print(f"  ✅ 已选择指令文档: {instruction_path}")
+
+    # ── 保存路径到 config.json ──────────────────────────────
+    config["last_script_dir"] = str(source_path.parent)
+    config["last_instruction_dir"] = str(instruction_path.parent)
+    save_config(config)
+
+    return source_path, instruction_path
+=====REPLACE=====
+    # ── 弹窗 1：选择源文件 ──────────────────────────────────
+    if prompt_mode:
+        last_source_dir = config.get("last_prompt_dir", "")
+        source_title = "选择提示词文件"
+        source_what = "选择你想要修改的提示词文件（.txt）"
+        source_usage = "文件将被复制为版本号 +1 的新文件，所有替换在新文件上执行，源文件保持不变"
+        source_dialog_title = "选择提示词文件（.txt）"
+        source_filetypes = [("文本文件", "*.txt"), ("所有文件", "*.*")]
+    else:
+        last_source_dir = config.get("last_script_dir", "")
+        source_title = "选择源脚本"
+        source_what = "选择你想要修改的 Python 脚本文件（.py）"
+        source_usage = "脚本将被复制为版本号 +1 的新文件，所有替换在新文件上执行，源文件保持不变"
+        source_dialog_title = "选择源脚本（.py）"
+        source_filetypes = [("Python 脚本", "*.py"), ("所有文件", "*.*")]
+
+    init_dir_source = last_source_dir if last_source_dir and Path(last_source_dir).is_dir() else str(Path.home())
+
+    print_dialog_banner(
+        title=source_title,
+        what=source_what,
+        usage=source_usage,
+    )
+
+    root = tk.Tk()
+    root.withdraw()
+    source_str = filedialog.askopenfilename(
+        title=source_dialog_title,
+        initialdir=init_dir_source,
+        filetypes=source_filetypes,
+    )
+    root.destroy()
+
+    if not source_str:
+        print("❌ 未选择源文件，已取消。")
+        sys.exit(0)
+
+    source_path = Path(source_str).resolve()
+    print(f"  ✅ 已选择源文件: {source_path}")
+
+    # ── 弹窗 2：选择指令文档 ────────────────────────────────
+    last_instruction_dir = config.get("last_instruction_dir", "")
+    init_dir_instruction = (
+        last_instruction_dir
+        if last_instruction_dir and Path(last_instruction_dir).is_dir()
+        else str(source_path.parent)
+    )
+
+    print_dialog_banner(
+        title="选择指令文档",
+        what="选择由 Claude 生成的修改指令文档（.txt）",
+        usage="脚本将解析文档中的 Locate/Replace 块，在新文件上执行查找替换",
+    )
+
+    root = tk.Tk()
+    root.withdraw()
+    instruction_str = filedialog.askopenfilename(
+        title="选择指令文档（.txt）",
+        initialdir=init_dir_instruction,
+        filetypes=[("文本文件", "*.txt"), ("所有文件", "*.*")],
+    )
+    root.destroy()
+
+    if not instruction_str:
+        print("❌ 未选择指令文档，已取消。")
+        sys.exit(0)
+
+    instruction_path = Path(instruction_str).resolve()
+    print(f"  ✅ 已选择指令文档: {instruction_path}")
+
+    # ── 保存路径到 config.json ──────────────────────────────
+    if prompt_mode:
+        config["last_prompt_dir"] = str(source_path.parent)
+    else:
+        config["last_script_dir"] = str(source_path.parent)
+    config["last_instruction_dir"] = str(instruction_path.parent)
+    save_config(config)
+
+    return source_path, instruction_path
+
+
+# ── 菜单入口：修改提示词 ────────────────────────────────────
+def run_prompt_modification() -> tuple[Path, Path]:
+    """菜单选项3的入口：以提示词模式弹窗选择文件。"""
+    print("（弹窗模式）请在弹窗中依次选择提示词文件和指令文档...\n")
+    return select_files_via_dialog(prompt_mode=True)
+=====END=====

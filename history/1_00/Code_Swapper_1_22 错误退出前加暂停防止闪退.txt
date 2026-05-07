@@ -1,0 +1,76 @@
+「Code_Swapper_1_22 错误退出前加暂停防止闪退」
+
+########## 修改说明 ##########
+main() 内所有错误性 sys.exit(非0) 在退出前缺少 input() 暂停，
+导致双击运行时窗口瞬间关闭、错误信息无法读取。
+共修改 4 处，统一在 print 错误信息后、sys.exit(1) 前插入
+input("\n按回车键退出...")。
+########## 说明结束 ##########
+
+---
+
+Modification 1 of 4
+
+Locate the following code:
+=====LOCATE=====
+    except ValueError as e:
+        print(f"\n❌ {e}")
+        sys.exit(1)
+
+    target_path = source_path.parent / new_filename
+=====REPLACE=====
+    except ValueError as e:
+        print(f"\n❌ {e}")
+        input("\n按回车键退出...")
+        sys.exit(1)
+
+    target_path = source_path.parent / new_filename
+=====END=====
+
+---
+
+Modification 2 of 4
+
+Locate the following code:
+=====LOCATE=====
+    except Exception as e:
+        print(f"\n❌ 读取源脚本失败: {e}")
+        sys.exit(1)
+=====REPLACE=====
+    except Exception as e:
+        print(f"\n❌ 读取源脚本失败: {e}")
+        input("\n按回车键退出...")
+        sys.exit(1)
+=====END=====
+
+---
+
+Modification 3 of 4
+
+Locate the following code:
+=====LOCATE=====
+    except Exception as e:
+        print(f"\n❌ 读取指令文档失败: {e}")
+        sys.exit(1)
+=====REPLACE=====
+    except Exception as e:
+        print(f"\n❌ 读取指令文档失败: {e}")
+        input("\n按回车键退出...")
+        sys.exit(1)
+=====END=====
+
+---
+
+Modification 4 of 4
+
+Locate the following code:
+=====LOCATE=====
+    except ValueError as e:
+        print(f"\n❌ 指令文档解析失败:\n{e}")
+        sys.exit(1)
+=====REPLACE=====
+    except ValueError as e:
+        print(f"\n❌ 指令文档解析失败:\n{e}")
+        input("\n按回车键退出...")
+        sys.exit(1)
+=====END=====

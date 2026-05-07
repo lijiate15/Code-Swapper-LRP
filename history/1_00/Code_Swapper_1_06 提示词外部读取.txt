@@ -1,0 +1,44 @@
+「Code_Swapper_1_05 提示词外部读取」Modification Summary
+
+########## 修改说明 ##########
+将内置的 PROMPT_TEXT 字符串改为从外部文件读取：
+Work\Code_Swapper使用提示词.txt
+
+目的：
+1. 避免大段文本嵌入导致三引号字符串破坏语法
+2. 提高提示词维护性（可直接修改 txt 文件）
+3. 防止再次出现闪退问题
+########## 说明结束 ##########
+
+---
+
+**Script Context** *(For Claude Code execution; ignored by Code_Swapper)*
+- This script belongs to the user.
+- Modification is strictly limited to PROMPT_TEXT loading logic.
+- Do not refactor unrelated code.
+
+---
+
+**Modification 1 of 1**
+
+Locate the following code:
+=====LOCATE=====
+# ============================================================
+# 提示词内容
+# ============================================================
+PROMPT_TEXT = """
+（提示词内容待填写）
+"""
+=====REPLACE=====
+# ============================================================
+# 提示词内容（从外部文件读取）
+# ============================================================
+try:
+    prompt_file = WORK_DIR / "Code_Swapper使用提示词.txt"
+    if prompt_file.is_file():
+        PROMPT_TEXT = prompt_file.read_text(encoding="utf-8")
+    else:
+        PROMPT_TEXT = "⚠️ 未找到提示词文件：Work/Code_Swapper使用提示词.txt"
+except Exception as e:
+    PROMPT_TEXT = f"⚠️ 读取提示词失败: {e}"
+=====END=====

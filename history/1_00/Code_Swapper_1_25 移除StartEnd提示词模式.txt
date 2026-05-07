@@ -1,0 +1,100 @@
+「Code_Swapper_1_25 移除StartEnd提示词模式」
+
+########## 修改说明 ##########
+彻底删除 Format B（Start/End 提示词修改模式）相关所有代码，仅保留 LOCATE 模式。
+包括：
+1. 删除 parse_prompt_instruction_doc / precheck_prompt / execute_prompt_replacements
+2. 删除 run_prompt_modification
+3. 删除 select_files_via_dialog 中 prompt_mode 分支
+4. 删除 main 中 choice=3 逻辑及 use_prompt_mode 分支
+5. 所有解析/预检查/执行统一使用 LOCATE 模式函数
+########## 说明结束 ##########
+
+---
+
+Modification 1 of 6
+
+Locate the following code:
+=====LOCATE=====
+def run_prompt_modification() -> tuple[Path, Path]:
+    """菜单选项3的入口：以提示词模式弹窗选择文件。"""
+    print("（弹窗模式）请在弹窗中依次选择提示词文件和指令文档...\n")
+    return select_files_via_dialog(prompt_mode=True)
+=====REPLACE=====
+
+=====END=====
+
+---
+
+Modification 2 of 6
+
+Locate the following code:
+=====LOCATE=====
+def parse_prompt_instruction_doc(content: str) -> list[dict]:
+=====REPLACE=====
+
+=====END=====
+
+---
+
+Modification 3 of 6
+
+Locate the following code:
+=====LOCATE=====
+def precheck_prompt(source_content: str, modifications: list[dict]) -> tuple[bool, list[str]]:
+=====REPLACE=====
+
+=====END=====
+
+---
+
+Modification 4 of 6
+
+Locate the following code:
+=====LOCATE=====
+def execute_prompt_replacements(
+    source_path: Path,
+    target_path: Path,
+    modifications: list[dict],
+    encoding: str,
+) -> list[str]:
+=====REPLACE=====
+
+=====END=====
+
+---
+
+Modification 5 of 6
+
+Locate the following code:
+=====LOCATE=====
+            print("  3. 修改提示词")
+=====REPLACE=====
+
+=====END=====
+
+---
+
+Modification 6 of 6
+
+Locate the following code:
+=====LOCATE=====
+            if choice in ('1', '3'):
+                if choice == '3':
+                    source_path, instruction_path = run_prompt_modification()
+                else:
+                    print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+                    source_path, instruction_path = select_files_via_dialog()
+                
+                if source_path is None:
+                    continue
+                break
+=====REPLACE=====
+            if choice == '1':
+                print("（弹窗模式）请在弹窗中依次选择源脚本和指令文档...\n")
+                source_path, instruction_path = select_files_via_dialog()
+                
+                if source_path is None:
+                    continue
+                break
+=====END=====

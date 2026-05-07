@@ -1,0 +1,105 @@
+「Code_Swapper_1_21 优化主菜单顺序与回车默认逻辑」
+
+########## 修改说明 ##########
+1. 调整主菜单顺序：将“进行代码修改”设为选项 1 并支持回车默认，将“查看使用提示词”移至选项 2。
+2. 优化交互逻辑：在主循环中处理空输入（回车），使其指向新的选项 1。
+3. 同步更新子菜单文本，增加“回车默认”提示以保持一致性。
+########## 说明结束 ##########
+
+Modification 1 of 2
+
+Locate the following code:
+=====LOCATE=====
+        while True:
+            print("\n请选择操作：")
+            print("  1. 查看使用提示词（并复制提示词到剪切板）")
+            print("  2. 进行代码修改")
+            print("  3. 修改提示词")
+            choice = input("请输入选项 (1/2/3): ").strip()
+            if choice == '1':
+                print("\n" + "=" * 60)
+                print(PROMPT_TEXT.strip())
+                print("=" * 60)
+                # 复制提示词到系统剪切板（Windows clip 命令，不依赖 tkinter）
+                try:
+                    import subprocess
+                    proc = subprocess.Popen(
+                        ['clip'],
+                        stdin=subprocess.PIPE,
+                        shell=True,
+                    )
+                    proc.communicate(input=PROMPT_TEXT.strip().encode('utf-16-le'))
+                    print("已复制提示词到剪切板。")
+                except Exception as e:
+                    print(f"⚠️ 复制到剪切板失败: {e}")
+                print("\n请选择：")
+                print("  1. 继续修改（回车默认）")
+                print("  2. 退出")
+                c = input("请输入选项 (1/2，回车默认1): ").strip()
+                if c == '2':
+                    sys.exit(0)
+            if choice in ('', '1', '2', '3'):
+                if choice != '1':
+                    break
+            else:
+                print("无效输入，请输入 1、2 或 3")
+                continue
+            if choice in ('2', '3'):
+                break
+        if choice == '3':
+=====REPLACE=====
+        while True:
+            print("\n请选择操作：")
+            print("  1. 进行代码修改（回车默认）")
+            print("  2. 查看使用提示词（并复制提示词到剪切板）")
+            print("  3. 修改提示词")
+            choice = input("请输入选项 (1/2/3): ").strip()
+            
+            # 处理回车默认逻辑
+            if choice == '':
+                choice = '1'
+
+            if choice == '2':
+                print("\n" + "=" * 60)
+                print(PROMPT_TEXT.strip())
+                print("=" * 60)
+                # 复制提示词到系统剪切板（Windows clip 命令，不依赖 tkinter）
+                try:
+                    import subprocess
+                    proc = subprocess.Popen(
+                        ['clip'],
+                        stdin=subprocess.PIPE,
+                        shell=True,
+                    )
+                    proc.communicate(input=PROMPT_TEXT.strip().encode('utf-16-le'))
+                    print("已复制提示词到剪切板。")
+                except Exception as e:
+                    print(f"⚠️ 复制到剪切板失败: {e}")
+                print("\n请选择：")
+                print("  1. 继续修改（回车默认）")
+                print("  2. 退出")
+                c = input("请输入选项 (1/2，回车默认1): ").strip()
+                if c == '2':
+                    sys.exit(0)
+                continue # 查看完提示词后返回菜单重新选择
+            
+            if choice in ('1', '3'):
+                break
+            else:
+                print("无效输入，请输入 1、2 或 3")
+                continue
+        
+        if choice == '3':
+=====END=====
+
+Modification 2 of 2
+
+Locate the following code:
+=====LOCATE=====
+    # ---------- 解析指令（根据模式选择解析器）----------
+    use_prompt_mode = (len(sys.argv) == 1 and 'choice' in dir() and locals().get('choice') == '3')
+=====REPLACE=====
+    # ---------- 解析指令（根据模式选择解析器）----------
+    # choice '3' 为修改提示词模式
+    use_prompt_mode = (len(sys.argv) == 1 and 'choice' in dir() and locals().get('choice') == '3')
+=====END=====
